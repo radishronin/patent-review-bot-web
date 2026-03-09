@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Patent Review</title>
+
+  <!-- mammoth.js: converts .docx to plain text entirely client-side -->
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -24,6 +28,8 @@
       --accent-light:   #6b8cba;
       --success:        #4a7c59;
       --success-light:  #6aad80;
+      --warning:        #7a6030;
+      --warning-light:  #c8a050;
     }
 
     html, body {
@@ -37,14 +43,14 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       min-height: 100vh;
-      padding: 2rem;
+      padding: 2rem 2rem 4rem;
     }
 
     header {
       text-align: center;
       margin-bottom: 3rem;
+      margin-top: 2rem;
     }
 
     header h1 {
@@ -70,9 +76,10 @@
       margin: 1.2rem auto;
     }
 
+    /* ── Drop zone ─────────────────────────────────── */
     .drop-zone {
       width: 100%;
-      max-width: 560px;
+      max-width: 640px;
       background: var(--bg-surface);
       border: 1.5px dashed var(--border);
       border-radius: 4px;
@@ -82,9 +89,7 @@
       align-items: center;
       gap: 1rem;
       cursor: default;
-      transition:
-        border-color 0.2s ease,
-        background-color 0.2s ease;
+      transition: border-color 0.2s ease, background-color 0.2s ease;
       position: relative;
       user-select: none;
     }
@@ -136,11 +141,11 @@
       color: var(--text-primary);
     }
 
-    /* File result card */
+    /* ── File result card ──────────────────────────── */
     .file-result {
       display: none;
       width: 100%;
-      max-width: 560px;
+      max-width: 640px;
       margin-top: 1.5rem;
       background: var(--bg-surface);
       border: 1px solid var(--border);
@@ -197,22 +202,111 @@
       border-radius: 2px;
     }
 
-    /* Error state */
-    .error-msg {
+    /* ── Status / error messages ───────────────────── */
+    .status-msg {
       display: none;
       width: 100%;
-      max-width: 560px;
+      max-width: 640px;
       margin-top: 1rem;
       font-size: 0.82rem;
-      color: #b06060;
       font-style: italic;
       text-align: center;
     }
 
-    .error-msg.visible {
+    .status-msg.visible   { display: block; }
+    .status-msg.error     { color: #b06060; }
+    .status-msg.working   { color: var(--text-muted); }
+
+    /* ── Analysis section ──────────────────────────── */
+    .analysis-section {
+      display: none;
+      width: 100%;
+      max-width: 640px;
+      margin-top: 2rem;
+    }
+
+    .analysis-section.visible {
       display: block;
     }
 
+    .analysis-header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .analysis-header h2 {
+      font-size: 0.72rem;
+      font-weight: normal;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .analysis-header .section-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-light);
+      font-style: normal;
+    }
+
+    /* Spinner shown while streaming/waiting */
+    .spinner {
+      display: none;
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid var(--border);
+      border-top-color: var(--accent-light);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .spinner.visible { display: block; }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .analysis-output {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.5rem;
+      max-height: 520px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .analysis-output::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .analysis-output::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .analysis-output::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .analysis-output pre {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Footer ────────────────────────────────────── */
     footer {
       margin-top: 3.5rem;
       font-size: 0.72rem;
@@ -231,28 +325,26 @@
     <p>Intelligent analysis for patent applications</p>
   </header>
 
+  <!-- ── Phase 1: Drop zone ─────────────────────────── -->
   <div class="drop-zone" id="dropZone" role="region" aria-label="File drop zone">
-    <!-- Document icon -->
     <svg class="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 6h16l10 10v26H12V6z" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linejoin="round"/>
       <path d="M28 6v10h10" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M18 22h12M18 28h12M18 34h8" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
-
     <p class="drop-label">
       Drop your patent document here
       <span>.docx files only</span>
     </p>
   </div>
 
+  <!-- ── Phase 1 result: file confirmation card ──────── -->
   <div class="file-result" id="fileResult">
-    <!-- Checkmark icon -->
     <svg class="file-result-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M8 6h12l8 8v16H8V6z" stroke="var(--success-light)" stroke-width="1.2" stroke-linejoin="round"/>
       <path d="M20 6v8h8" stroke="var(--success-light)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12 20l3.5 3.5L24 15" stroke="var(--success-light)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-
     <div class="file-details">
       <div class="file-name" id="fileName"></div>
       <div class="file-meta" id="fileMeta"></div>
@@ -260,67 +352,240 @@
     <div class="file-badge">Received</div>
   </div>
 
-  <div class="error-msg" id="errorMsg"></div>
+  <!-- ── Shared status / error line ──────────────────── -->
+  <div class="status-msg" id="statusMsg"></div>
+
+  <!-- ── Phase 2: Analysis output ────────────────────── -->
+  <div class="analysis-section" id="analysisSection">
+    <div class="analysis-header">
+      <h2>Preliminary Review</h2>
+      <span class="section-label">&sect;101 &middot; &sect;102 &middot; &sect;103 &middot; &sect;112</span>
+      <div class="spinner" id="spinner"></div>
+    </div>
+    <div class="analysis-output">
+      <pre id="analysisOutput"></pre>
+    </div>
+  </div>
 
   <footer>Patent Review System &mdash; Prototype</footer>
 
   <script>
-    const dropZone   = document.getElementById('dropZone');
-    const fileResult = document.getElementById('fileResult');
-    const fileName   = document.getElementById('fileName');
-    const fileMeta   = document.getElementById('fileMeta');
-    const errorMsg   = document.getElementById('errorMsg');
+    // =============================================================
+    // CONFIG
+    // TODO: Replace with your actual Anthropic API key before use.
+    //       Do NOT commit a real key to a public repository.
+    //       Future: load from a backend proxy or environment variable.
+    // =============================================================
+    const ANTHROPIC_API_KEY = 'YOUR_API_KEY_HERE';
+
+    const MODEL = 'claude-opus-4-6'; // Most capable model for legal analysis
+
+    // =============================================================
+    // LLM PROVIDER ABSTRACTION
+    // Swap out this object to change providers without touching
+    // the rest of the application logic.
+    // =============================================================
+    const LLMProvider = {
+      /**
+       * Send a user message and receive a streamed text response.
+       * Yields chunks via the onChunk callback as they arrive.
+       *
+       * @param {string}   userMessage  - The full prompt text to send.
+       * @param {Function} onChunk      - Called with each text delta string.
+       * @returns {Promise<void>}
+       */
+      async streamMessage(userMessage, onChunk) {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key':         ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            // Required header to call the API from a browser context:
+            'anthropic-dangerous-request-broker-extension': 'allow',
+            'content-type':      'application/json',
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 2048,
+            stream: true,
+            messages: [
+              { role: 'user', content: userMessage }
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(`API error ${response.status}: ${body}`);
+        }
+
+        // Parse the SSE stream
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE events are separated by double newlines
+          const events = buffer.split('\n\n');
+          buffer = events.pop(); // keep any incomplete trailing event
+
+          for (const event of events) {
+            const dataLine = event.split('\n').find(l => l.startsWith('data:'));
+            if (!dataLine) continue;
+
+            const raw = dataLine.slice(5).trim();
+            if (raw === '[DONE]') return;
+
+            let parsed;
+            try { parsed = JSON.parse(raw); } catch { continue; }
+
+            if (parsed.type === 'content_block_delta' &&
+                parsed.delta?.type === 'text_delta') {
+              onChunk(parsed.delta.text);
+            }
+          }
+        }
+      },
+    };
+
+    // =============================================================
+    // PROMPT
+    // =============================================================
+    function buildReviewPrompt(documentText) {
+      return `You are a patent attorney assistant with expertise in U.S. patent law. \
+Perform a preliminary patentability review of the following patent application document.
+
+Structure your analysis under four headings:
+
+## §101 — Subject Matter Eligibility
+Assess whether the claimed invention falls within a statutory category (process, machine, manufacture, or composition of matter) and whether it is directed to patent-eligible subject matter under Alice/Mayo.
+
+## §102 — Novelty
+Identify any claim elements or combinations that may lack novelty. Note any apparent prior art concerns based on the document's own disclosures or well-known public domain knowledge.
+
+## §103 — Obviousness
+Evaluate whether the claimed invention would have been obvious to a person of ordinary skill in the art (POSITA) at the time of filing. Consider motivation to combine, secondary considerations, etc.
+
+## §112 — Written Description & Enablement
+Review whether the specification adequately supports the claims (written description) and whether it enables a POSITA to make and use the invention without undue experimentation.
+
+Conclude with a brief **Summary of Key Risks** and suggested next steps.
+
+---
+PATENT APPLICATION DOCUMENT:
+${documentText}`;
+    }
+
+    // =============================================================
+    // UI HELPERS
+    // =============================================================
+    const dropZone       = document.getElementById('dropZone');
+    const fileResult     = document.getElementById('fileResult');
+    const fileNameEl     = document.getElementById('fileName');
+    const fileMetaEl     = document.getElementById('fileMeta');
+    const statusMsg      = document.getElementById('statusMsg');
+    const analysisSection = document.getElementById('analysisSection');
+    const analysisOutput = document.getElementById('analysisOutput');
+    const spinner        = document.getElementById('spinner');
 
     function formatBytes(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024)            return bytes + ' B';
+      if (bytes < 1024 * 1024)    return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     }
 
-    function showFile(file) {
-      errorMsg.classList.remove('visible');
-      errorMsg.textContent = '';
-
-      fileName.textContent = file.name;
-      fileMeta.textContent = formatBytes(file.size);
-
-      fileResult.classList.add('visible');
-      dropZone.classList.remove('drag-over');
-      dropZone.classList.add('accepted');
+    function setStatus(msg, type /* 'error' | 'working' | '' */) {
+      statusMsg.textContent = msg;
+      statusMsg.className   = 'status-msg' + (msg ? ' visible' : '');
+      if (type) statusMsg.classList.add(type);
     }
 
-    function showError(msg) {
-      fileResult.classList.remove('visible');
-      dropZone.classList.remove('drag-over', 'accepted');
-      errorMsg.textContent = msg;
-      errorMsg.classList.add('visible');
+    function setSpinner(active) {
+      spinner.classList.toggle('visible', active);
     }
 
-    function handleFile(file) {
+    // =============================================================
+    // CORE FLOW
+    // =============================================================
+    async function handleFile(file) {
+      // ── Validate ──────────────────────────────────────────────
       const isDocx = file.name.toLowerCase().endsWith('.docx') ||
                      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       if (!isDocx) {
-        showError('Only .docx files are supported. Please drop a Word document.');
+        setStatus('Only .docx files are supported. Please drop a Word document.', 'error');
+        fileResult.classList.remove('visible');
+        dropZone.classList.remove('drag-over', 'accepted');
         return;
       }
-      showFile(file);
+
+      // ── Phase 1: show file confirmation ───────────────────────
+      setStatus('');
+      fileNameEl.textContent = file.name;
+      fileMetaEl.textContent = formatBytes(file.size);
+      fileResult.classList.add('visible');
+      dropZone.classList.remove('drag-over');
+      dropZone.classList.add('accepted');
+
+      // ── Phase 2a: extract text with mammoth ───────────────────
+      setStatus('Extracting document text\u2026', 'working');
+
+      let docText;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        // mammoth.extractRawText returns { value: string, messages: [] }
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        docText = result.value.trim();
+      } catch (err) {
+        setStatus('Failed to read document: ' + err.message, 'error');
+        return;
+      }
+
+      if (!docText) {
+        setStatus('Document appears to be empty or could not be parsed.', 'error');
+        return;
+      }
+
+      // ── Phase 2b: send to LLM, stream response ────────────────
+      setStatus('Sending to model for analysis\u2026', 'working');
+      analysisSection.classList.add('visible');
+      analysisOutput.textContent = '';
+      setSpinner(true);
+
+      const prompt = buildReviewPrompt(docText);
+
+      try {
+        await LLMProvider.streamMessage(prompt, (chunk) => {
+          analysisOutput.textContent += chunk;
+          // Keep the scrollable area pinned to the bottom while streaming
+          const outputBox = analysisOutput.parentElement;
+          outputBox.scrollTop = outputBox.scrollHeight;
+        });
+        setStatus('');
+      } catch (err) {
+        setStatus('Analysis failed: ' + err.message, 'error');
+      } finally {
+        setSpinner(false);
+      }
     }
 
-    // Prevent default browser behaviour for all drag events on the page
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
-      document.addEventListener(event, e => e.preventDefault());
+    // =============================================================
+    // DRAG & DROP WIRING
+    // =============================================================
+
+    // Prevent the browser from opening dropped files
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+      document.addEventListener(evt, e => e.preventDefault());
     });
 
-    dropZone.addEventListener('dragenter', () => {
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone.addEventListener('dragover', () => {
-      dropZone.classList.add('drag-over');
-    });
+    dropZone.addEventListener('dragenter', () => dropZone.classList.add('drag-over'));
+    dropZone.addEventListener('dragover',  () => dropZone.classList.add('drag-over'));
 
     dropZone.addEventListener('dragleave', e => {
-      // Only remove if the pointer truly left the drop zone
       if (!dropZone.contains(e.relatedTarget)) {
         dropZone.classList.remove('drag-over');
       }
