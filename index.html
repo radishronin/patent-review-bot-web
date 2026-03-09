@@ -372,11 +372,11 @@
   <script>
     // =============================================================
     // CONFIG
-    // TODO: Replace with your actual Anthropic API key before use.
-    //       Do NOT commit a real key to a public repository.
-    //       Future: load from a backend proxy or environment variable.
+    // TODO: Replace with your deployed Workers URL after running `wrangler deploy`.
+    //       Format: https://patent-review-proxy.<your-subdomain>.workers.dev
+    //       The API key lives in Cloudflare as a secret — never in this file.
     // =============================================================
-    const ANTHROPIC_API_KEY = 'YOUR_API_KEY_HERE';
+    const PROXY_URL = 'https://patent-review-proxy.patent-review-bot.workers.dev';
 
     const MODEL = 'claude-opus-4-6'; // Most capable model for legal analysis
 
@@ -395,14 +395,11 @@
        * @returns {Promise<void>}
        */
       async streamMessage(userMessage, onChunk) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        // POST to the Cloudflare Worker proxy — no API key in the browser
+        const response = await fetch(PROXY_URL, {
           method: 'POST',
           headers: {
-            'x-api-key':         ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-            // Required header to call the API from a browser context:
-            'anthropic-dangerous-request-broker-extension': 'allow',
-            'content-type':      'application/json',
+            'content-type': 'application/json',
           },
           body: JSON.stringify({
             model: MODEL,
