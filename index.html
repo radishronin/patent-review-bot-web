@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patent Review</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-base:        #0e0e0e;
+      --bg-surface:     #161616;
+      --bg-raised:      #1f1f1f;
+      --border:         #2e2e2e;
+      --border-active:  #6b8cba;
+      --text-primary:   #e8e4dc;
+      --text-secondary: #8a8580;
+      --text-muted:     #4a4845;
+      --accent:         #4a6fa5;
+      --accent-light:   #6b8cba;
+      --success:        #4a7c59;
+      --success-light:  #6aad80;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: normal;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+
+    header p {
+      margin-top: 0.6rem;
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      letter-spacing: 0.02em;
+    }
+
+    .divider {
+      width: 48px;
+      height: 1px;
+      background: var(--border);
+      margin: 1.2rem auto;
+    }
+
+    .drop-zone {
+      width: 100%;
+      max-width: 560px;
+      background: var(--bg-surface);
+      border: 1.5px dashed var(--border);
+      border-radius: 4px;
+      padding: 3.5rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      cursor: default;
+      transition:
+        border-color 0.2s ease,
+        background-color 0.2s ease;
+      position: relative;
+      user-select: none;
+    }
+
+    .drop-zone.drag-over {
+      border-color: var(--border-active);
+      background-color: var(--bg-raised);
+    }
+
+    .drop-zone.accepted {
+      border-style: solid;
+      border-color: var(--success);
+      background-color: var(--bg-raised);
+    }
+
+    .drop-icon {
+      width: 48px;
+      height: 48px;
+      opacity: 0.35;
+      transition: opacity 0.2s ease;
+    }
+
+    .drop-zone.drag-over .drop-icon,
+    .drop-zone.accepted .drop-icon {
+      opacity: 0.6;
+    }
+
+    .drop-zone.accepted .drop-icon path {
+      stroke: var(--success-light);
+    }
+
+    .drop-label {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.03em;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .drop-label span {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+      font-style: italic;
+    }
+
+    .drop-zone.drag-over .drop-label {
+      color: var(--text-primary);
+    }
+
+    /* File result card */
+    .file-result {
+      display: none;
+      width: 100%;
+      max-width: 560px;
+      margin-top: 1.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.25rem 1.5rem;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .file-result.visible {
+      display: flex;
+    }
+
+    .file-result-icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      opacity: 0.7;
+    }
+
+    .file-result-icon path {
+      stroke: var(--success-light);
+    }
+
+    .file-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-name {
+      font-size: 0.95rem;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.01em;
+    }
+
+    .file-meta {
+      margin-top: 0.25rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .file-badge {
+      flex-shrink: 0;
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.7rem;
+      border: 1px solid var(--success);
+      color: var(--success-light);
+      border-radius: 2px;
+    }
+
+    /* Error state */
+    .error-msg {
+      display: none;
+      width: 100%;
+      max-width: 560px;
+      margin-top: 1rem;
+      font-size: 0.82rem;
+      color: #b06060;
+      font-style: italic;
+      text-align: center;
+    }
+
+    .error-msg.visible {
+      display: block;
+    }
+
+    footer {
+      margin-top: 3.5rem;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Patent Review</h1>
+    <div class="divider"></div>
+    <p>Intelligent analysis for patent applications</p>
+  </header>
+
+  <div class="drop-zone" id="dropZone" role="region" aria-label="File drop zone">
+    <!-- Document icon -->
+    <svg class="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 6h16l10 10v26H12V6z" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M28 6v10h10" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M18 22h12M18 28h12M18 34h8" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+
+    <p class="drop-label">
+      Drop your patent document here
+      <span>.docx files only</span>
+    </p>
+  </div>
+
+  <div class="file-result" id="fileResult">
+    <!-- Checkmark icon -->
+    <svg class="file-result-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 6h12l8 8v16H8V6z" stroke="var(--success-light)" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M20 6v8h8" stroke="var(--success-light)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 20l3.5 3.5L24 15" stroke="var(--success-light)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <div class="file-details">
+      <div class="file-name" id="fileName"></div>
+      <div class="file-meta" id="fileMeta"></div>
+    </div>
+    <div class="file-badge">Received</div>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <footer>Patent Review System &mdash; Prototype</footer>
+
+  <script>
+    const dropZone   = document.getElementById('dropZone');
+    const fileResult = document.getElementById('fileResult');
+    const fileName   = document.getElementById('fileName');
+    const fileMeta   = document.getElementById('fileMeta');
+    const errorMsg   = document.getElementById('errorMsg');
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function showFile(file) {
+      errorMsg.classList.remove('visible');
+      errorMsg.textContent = '';
+
+      fileName.textContent = file.name;
+      fileMeta.textContent = formatBytes(file.size);
+
+      fileResult.classList.add('visible');
+      dropZone.classList.remove('drag-over');
+      dropZone.classList.add('accepted');
+    }
+
+    function showError(msg) {
+      fileResult.classList.remove('visible');
+      dropZone.classList.remove('drag-over', 'accepted');
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('visible');
+    }
+
+    function handleFile(file) {
+      const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+                     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      if (!isDocx) {
+        showError('Only .docx files are supported. Please drop a Word document.');
+        return;
+      }
+      showFile(file);
+    }
+
+    // Prevent default browser behaviour for all drag events on the page
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
+      document.addEventListener(event, e => e.preventDefault());
+    });
+
+    dropZone.addEventListener('dragenter', () => {
+      dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragover', () => {
+      dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', e => {
+      // Only remove if the pointer truly left the drop zone
+      if (!dropZone.contains(e.relatedTarget)) {
+        dropZone.classList.remove('drag-over');
+      }
+    });
+
+    dropZone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+      handleFile(files[0]);
+    });
+  </script>
+
+</body>
+</html>
