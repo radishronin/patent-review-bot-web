@@ -306,6 +306,72 @@
       word-break: break-word;
     }
 
+    /* ── Validation result ─────────────────────────── */
+    .validation-result {
+      display: none;
+      width: 100%;
+      max-width: 640px;
+      margin-top: 1rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1rem 1.25rem;
+    }
+
+    .validation-result.visible { display: block; }
+
+    .validation-result .val-errors {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .validation-result .val-errors li {
+      font-size: 0.82rem;
+      color: #b06060;
+      font-style: italic;
+      padding: 0.2rem 0;
+      letter-spacing: 0.01em;
+    }
+
+    .validation-result .val-errors li::before {
+      content: '✕  ';
+      font-style: normal;
+    }
+
+    .validation-result .val-warnings {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .validation-result .val-warnings li {
+      font-size: 0.82rem;
+      color: var(--warning-light);
+      font-style: italic;
+      padding: 0.2rem 0;
+      letter-spacing: 0.01em;
+    }
+
+    .validation-result .val-warnings li::before {
+      content: '⚠  ';
+      font-style: normal;
+    }
+
+    .validation-result .val-meta {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 0.5rem;
+    }
+
+    .validation-result .val-warnings + .val-meta,
+    .validation-result .val-errors + .val-meta {
+      margin-top: 0.6rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+
     /* ── Footer ────────────────────────────────────── */
     footer {
       margin-top: 3.5rem;
@@ -351,6 +417,9 @@
     </div>
     <div class="file-badge">Received</div>
   </div>
+
+  <!-- ── Phase 1.5: Validation result ────────────────── -->
+  <div class="validation-result" id="validationResult"></div>
 
   <!-- ── Shared status / error line ──────────────────── -->
   <div class="status-msg" id="statusMsg"></div>
@@ -479,16 +548,165 @@ ${documentText}`;
     }
 
     // =============================================================
+    // PATENT VALIDATOR
+    // Inline copy of src/patent-validator.js — do not edit here.
+    // The canonical, testable source lives in src/patent-validator.js.
+    // =============================================================
+    (function () {
+      const CLAIMS_PATTERNS = [
+        /^\s*claims\s*$/im,
+        /^\s*what\s+is\s+claimed\s+is\s*:/im,
+        /^\s*what\s+is\s+claimed\s*:/im,
+        /^\s*i\s+claim\s*:/im,
+        /^\s*we\s+claim\s*:/im,
+      ];
+
+      const SECTION_CHECKS = [
+        {
+          key: 'hasAbstract',
+          name: 'Abstract',
+          patterns: [/abstract\s+of\s+the\s+disclosure/i, /\babstract\b/i],
+        },
+        {
+          key: 'hasBackground',
+          name: 'Background',
+          patterns: [
+            /background\s+of\s+the\s+invention/i,
+            /field\s+of\s+the\s+invention/i,
+            /technical\s+field/i,
+            /\bbackground\b/i,
+          ],
+        },
+        {
+          key: 'hasSummary',
+          name: 'Summary',
+          patterns: [/summary\s+of\s+the\s+invention/i, /\bsummary\b/i],
+        },
+        {
+          key: 'hasBriefDescription',
+          name: 'Brief Description of Drawings',
+          patterns: [
+            /brief\s+description\s+of\s+the\s+drawings/i,
+            /brief\s+description\s+of\s+the\s+figures/i,
+            /description\s+of\s+the\s+drawings/i,
+          ],
+        },
+        {
+          key: 'hasDetailedDescription',
+          name: 'Detailed Description',
+          patterns: [
+            /detailed\s+description\s+of\s+the\s+invention/i,
+            /description\s+of\s+embodiments/i,
+            /description\s+of\s+the\s+preferred\s+embodiment/i,
+            /detailed\s+description/i,
+          ],
+        },
+      ];
+
+      const PARAGRAPH_MARKER_RE = /\[0{0,3}\d+\]/g;
+
+      function detectSection(lines, patterns) {
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          for (const pat of patterns) {
+            if (pat.test(trimmed)) return true;
+          }
+        }
+        return false;
+      }
+
+      function detectClaims(lines) {
+        for (const line of lines) {
+          for (const pat of CLAIMS_PATTERNS) {
+            if (pat.test(line)) return true;
+          }
+        }
+        return false;
+      }
+
+      function extractTitle(lines) {
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (PARAGRAPH_MARKER_RE.test(trimmed)) { PARAGRAPH_MARKER_RE.lastIndex = 0; continue; }
+          PARAGRAPH_MARKER_RE.lastIndex = 0;
+          if (/^(abstract|background|summary|claims|field|technical\s+field|detailed\s+description|brief\s+description)/i.test(trimmed)) continue;
+          return trimmed;
+        }
+        return null;
+      }
+
+      window.validatePatentDocument = function validatePatentDocument(rawText) {
+        const errors = [];
+        const warnings = [];
+        const trimmed = typeof rawText === 'string' ? rawText.trim() : '';
+
+        if (trimmed.length < 500) {
+          errors.push('Document is too short to be a patent application (less than 500 characters).');
+          return {
+            isValid: false, errors, warnings,
+            metadata: {
+              title: null, paragraphCount: 0, hasClaimsSection: false,
+              hasAbstract: false, hasDetailedDescription: false, hasSummary: false,
+              hasBackground: false, hasBriefDescription: false,
+              estimatedTokenCount: Math.ceil(trimmed.length / 4),
+            },
+          };
+        }
+
+        const lines = trimmed.split('\n');
+        const hasClaimsSection = detectClaims(lines);
+        if (!hasClaimsSection) {
+          errors.push('No claims section detected. A patent application must include a claims section.');
+        }
+
+        const markerMatches = trimmed.match(PARAGRAPH_MARKER_RE) || [];
+        const paragraphCount = markerMatches.length;
+        if (paragraphCount === 0) {
+          warnings.push('No numbered paragraphs ([XXXX]) detected. Paragraph-level feedback will not be available.');
+        }
+
+        const sectionResults = {};
+        for (const section of SECTION_CHECKS) {
+          const found = detectSection(lines, section.patterns);
+          sectionResults[section.key] = found;
+          if (!found) {
+            warnings.push('No ' + section.name + ' section detected.');
+          }
+        }
+
+        return {
+          isValid: errors.length === 0,
+          errors,
+          warnings,
+          metadata: {
+            title: extractTitle(lines),
+            paragraphCount,
+            hasClaimsSection,
+            hasAbstract:            sectionResults.hasAbstract,
+            hasDetailedDescription: sectionResults.hasDetailedDescription,
+            hasSummary:             sectionResults.hasSummary,
+            hasBackground:          sectionResults.hasBackground,
+            hasBriefDescription:    sectionResults.hasBriefDescription,
+            estimatedTokenCount:    Math.ceil(trimmed.length / 4),
+          },
+        };
+      };
+    })();
+
+    // =============================================================
     // UI HELPERS
     // =============================================================
-    const dropZone       = document.getElementById('dropZone');
-    const fileResult     = document.getElementById('fileResult');
-    const fileNameEl     = document.getElementById('fileName');
-    const fileMetaEl     = document.getElementById('fileMeta');
-    const statusMsg      = document.getElementById('statusMsg');
+    const dropZone        = document.getElementById('dropZone');
+    const fileResult      = document.getElementById('fileResult');
+    const fileNameEl      = document.getElementById('fileName');
+    const fileMetaEl      = document.getElementById('fileMeta');
+    const validationResult = document.getElementById('validationResult');
+    const statusMsg       = document.getElementById('statusMsg');
     const analysisSection = document.getElementById('analysisSection');
-    const analysisOutput = document.getElementById('analysisOutput');
-    const spinner        = document.getElementById('spinner');
+    const analysisOutput  = document.getElementById('analysisOutput');
+    const spinner         = document.getElementById('spinner');
 
     function formatBytes(bytes) {
       if (bytes < 1024)            return bytes + ' B';
@@ -510,7 +728,13 @@ ${documentText}`;
     // CORE FLOW
     // =============================================================
     async function handleFile(file) {
-      // ── Validate ──────────────────────────────────────────────
+      // ── Clear previous results ─────────────────────────────────
+      validationResult.className = 'validation-result';
+      validationResult.innerHTML = '';
+      analysisOutput.textContent = '';
+      analysisSection.classList.remove('visible');
+
+      // ── Validate file type ────────────────────────────────────
       const isDocx = file.name.toLowerCase().endsWith('.docx') ||
                      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       if (!isDocx) {
@@ -546,6 +770,47 @@ ${documentText}`;
         setStatus('Document appears to be empty or could not be parsed.', 'error');
         return;
       }
+
+      // ── Phase 1.5: validate patent structure ──────────────────
+      const validation = validatePatentDocument(docText);
+      const { isValid, errors: valErrors, warnings: valWarnings, metadata } = validation;
+
+      const metaLine = metadata.paragraphCount + ' numbered paragraph' +
+        (metadata.paragraphCount !== 1 ? 's' : '') +
+        ' \u00b7 ~' + metadata.estimatedTokenCount.toLocaleString() + ' tokens';
+
+      if (!isValid) {
+        // Show blocking errors and stop — do not call the LLM
+        const ul = document.createElement('ul');
+        ul.className = 'val-errors';
+        valErrors.forEach(msg => {
+          const li = document.createElement('li');
+          li.textContent = msg;
+          ul.appendChild(li);
+        });
+        validationResult.appendChild(ul);
+        validationResult.classList.add('visible');
+        setStatus('');
+        return;
+      }
+
+      // Build the validation result panel (warnings + always-shown meta summary)
+      if (valWarnings.length > 0) {
+        const ul = document.createElement('ul');
+        ul.className = 'val-warnings';
+        valWarnings.forEach(msg => {
+          const li = document.createElement('li');
+          li.textContent = msg;
+          ul.appendChild(li);
+        });
+        validationResult.appendChild(ul);
+      }
+
+      const metaEl = document.createElement('div');
+      metaEl.className = 'val-meta';
+      metaEl.textContent = metaLine;
+      validationResult.appendChild(metaEl);
+      validationResult.classList.add('visible');
 
       // ── Phase 2b: send to LLM, stream response ────────────────
       setStatus('Sending to model for analysis\u2026', 'working');
