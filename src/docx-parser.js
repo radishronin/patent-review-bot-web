@@ -46,8 +46,7 @@ function children(el, localName) {
 }
 
 /**
- * Read the w:val attribute from an element, trying both the prefixed form
- * (getAttribute) and the namespaced form as a fallback.
+ * Read the w:val attribute, trying the prefixed form then the namespaced form.
  */
 function wVal(el) {
   if (!el) return null;
@@ -63,13 +62,12 @@ function wVal(el) {
  * @param {string} numberingXml
  * @param {string} stylesXml
  * @returns {{ numId: string, styleNames: Set<string> } | null}
- *   null means no bracket-numbering scheme was found — caller should fall back.
  */
 export function resolveNumbering(numberingXml, stylesXml) {
   const numDoc    = parseXml(numberingXml);
   const stylesDoc = parseXml(stylesXml);
 
-  // ── Step 1: find the abstractNumId whose level-0 lvlText contains [%1] ──
+  // Step 1: find the abstractNumId whose level-0 lvlText contains [%1]
   let targetAbstractNumId = null;
 
   for (const abstractNum of numDoc.getElementsByTagNameNS(W_NS, 'abstractNum')) {
@@ -90,7 +88,7 @@ export function resolveNumbering(numberingXml, stylesXml) {
 
   if (targetAbstractNumId === null) return null;
 
-  // ── Step 2: find the concrete numId that references this abstractNumId ──
+  // Step 2: find the concrete numId that references this abstractNumId
   let targetNumId = null;
 
   for (const num of numDoc.getElementsByTagNameNS(W_NS, 'num')) {
@@ -104,7 +102,7 @@ export function resolveNumbering(numberingXml, stylesXml) {
 
   if (targetNumId === null) return null;
 
-  // ── Step 3: find styles that inherit this numId via their pPr/numPr ──
+  // Step 3: find styles that inherit this numId via their pPr/numPr
   const styleNames = new Set();
 
   for (const style of stylesDoc.getElementsByTagNameNS(W_NS, 'style')) {
@@ -114,7 +112,6 @@ export function resolveNumbering(numberingXml, stylesXml) {
     const numIdEl = firstChild(numPr, 'numId');
     if (wVal(numIdEl) !== targetNumId) continue;
 
-    // Record both the human-readable name and the style ID
     const nameEl  = firstChild(style, 'name');
     const nameVal = wVal(nameEl);
     if (nameVal) styleNames.add(nameVal);
@@ -134,7 +131,7 @@ export function resolveNumbering(numberingXml, stylesXml) {
  * Extract all text from a <w:p> element, collecting both <w:t> runs and
  * <m:t> math-text nodes in document order. Inserts a tab character for <w:tab>.
  *
- * @param {Element} paragraphEl — a <w:p> DOM element
+ * @param {Element} paragraphEl
  * @returns {string}
  */
 export function extractParagraphText(paragraphEl) {
@@ -148,13 +145,10 @@ function _collectText(el, parts, skipPPr) {
     if (node.nodeType !== 1) continue;
     const ln = node.localName;
 
-    // Skip paragraph/run property blocks — they contain no content text
     if (skipPPr && (ln === 'pPr' || ln === 'rPr')) continue;
-
-    if (ln === 'rPr') continue; // always skip run properties
+    if (ln === 'rPr') continue;
 
     if (ln === 't') {
-      // Both <w:t> and <m:t> have localName 't'
       parts.push(node.textContent);
     } else if (ln === 'tab') {
       parts.push('\t');
@@ -181,12 +175,10 @@ export function parseClaims(claimParagraphs) {
     const text = para.text.trim();
     if (!text) continue;
 
-    // Skip the "What is claimed is:" or similar header lines
     if (/^(what\s+is\s+claimed\s+is\s*:|claims?\s*$|i\s+claim\s*:|we\s+claim\s*:)/i.test(text)) {
       continue;
     }
 
-    // A new claim starts with a digit followed by a period: "1.", "12.", etc.
     const claimStart = text.match(/^(\d+)\.\s*/);
     if (claimStart) {
       if (current) claims.push(current);
@@ -198,7 +190,6 @@ export function parseClaims(claimParagraphs) {
         dependsOn: _parseDependsOn(bodyText),
       };
     } else if (current) {
-      // Continuation / limitation line of the current claim
       current.text += '\n' + text;
     }
   }
@@ -208,36 +199,155 @@ export function parseClaims(claimParagraphs) {
 }
 
 function _parseDependsOn(text) {
-  // Match "claim 1", "claims 1 and 3" (take the first referenced number)
   const m = text.match(/\bclaims?\s+(\d+)/i);
   return m ? parseInt(m[1], 10) : null;
+}
+
+// ─── Bold detection helpers ────────────────────────────────────────────────
+
+/**
+ * True if an rPr element contains an active <w:b/> element.
+ * <w:b/> with no val or val="true"/"1" → bold.
+ * <w:b w:val="false"/"0" → explicitly not bold.
+ */
+function _hasBold(rPrEl) {
+  const b = firstChild(rPrEl, 'b');
+  if (!b) return false;
+  const val = wVal(b);
+  return val === null || val === '' || val === 'true' || val === '1';
+}
+
+/**
+ * True if the paragraph has bold formatting in its paragraph default rPr
+ * or in any of its runs.
+ */
+function _isBoldPara(pEl) {
+  const pPr = firstChild(pEl, 'pPr');
+  if (pPr) {
+    const rPr = firstChild(pPr, 'rPr');
+    if (rPr && _hasBold(rPr)) return true;
+  }
+  for (const node of pEl.childNodes) {
+    if (node.nodeType === 1 && node.localName === 'r') {
+      const rPr = firstChild(node, 'rPr');
+      if (rPr && _hasBold(rPr)) return true;
+    }
+  }
+  return false;
+}
+
+// ─── Exported helper: parseFrontMatter ────────────────────────────────────
+
+/**
+ * @typedef {{ number: string|null, text: string, style: string, isCentered: boolean, isBold: boolean }} RawParagraph
+ */
+
+/**
+ * Extract structured metadata from front-matter RawParagraph objects.
+ *
+ * Uses the fixed cover-page structure of our firm's patent template:
+ *   "UNITED STATES PATENT APPLICATION" → "FOR" → title → inventors → docket info
+ *
+ * Title heuristic: first centered+bold paragraph after the "FOR" anchor
+ * (skipping any empty paragraphs). Robust against boilerplate that appears
+ * before "FOR".
+ *
+ * @param {RawParagraph[]} paragraphs
+ * @returns {{ title: string|null, inventors: string[], docketNumber: string|null, clientRef: string|null }}
+ */
+export function parseFrontMatter(paragraphs) {
+  let title        = null;
+  const inventors  = [];
+  let docketNumber = null;
+  let clientRef    = null;
+
+  // ── Title: first centered+bold paragraph after the centered "FOR" line ──
+  let forIdx = -1;
+  for (let i = 0; i < paragraphs.length; i++) {
+    if (/^for$/i.test(paragraphs[i].text.trim()) && paragraphs[i].isCentered) {
+      forIdx = i;
+      break;
+    }
+  }
+
+  if (forIdx >= 0) {
+    for (let i = forIdx + 1; i < paragraphs.length; i++) {
+      const p = paragraphs[i];
+      if (!p.text.trim()) continue;
+      if (p.isCentered && p.isBold) {
+        title = p.text.trim();
+        break;
+      }
+    }
+  }
+
+  // ── Inventors: centered non-bold paragraphs after an "Inventor(s):" label ──
+  let inventorAnchorIdx = -1;
+  for (let i = 0; i < paragraphs.length; i++) {
+    if (/^inventors?:\s*$/i.test(paragraphs[i].text.trim())) {
+      inventorAnchorIdx = i;
+      break;
+    }
+  }
+
+  if (inventorAnchorIdx >= 0) {
+    for (let i = inventorAnchorIdx + 1; i < paragraphs.length; i++) {
+      const p = paragraphs[i];
+      const t = p.text.trim();
+      if (!t) continue;
+      // Stop at docket/attorney/phone lines or any bold label ending with ":"
+      if (/attorney\s+docket|client\s+ref|docket\s+no|phone|fax|email|\d{3}[-.\s]\d{3}/i.test(t)) break;
+      if (p.isBold && /:\s*$/.test(t)) break;
+      if (p.isCentered && !p.isBold) inventors.push(t);
+    }
+  }
+
+  // ── Docket / client ref: scan all paragraphs ──
+  for (const p of paragraphs) {
+    const t = p.text.trim();
+    if (!docketNumber) {
+      const dm = t.match(/attorney\s+docket\s+(?:no\.?|number)?\s*:?\s*(.+)/i);
+      if (dm) docketNumber = dm[1].trim();
+    }
+    if (!clientRef) {
+      const cm = t.match(/client\s+ref(?:erence)?\s+(?:no\.?|number)?\s*:?\s*(.+)/i);
+      if (cm) clientRef = cm[1].trim();
+    }
+  }
+
+  return { title, inventors, docketNumber, clientRef };
 }
 
 // ─── Exported helper: classifySections ────────────────────────────────────
 
 /**
- * @typedef {{ number: string|null, text: string, style: string, isCentered: boolean }} RawParagraph
- */
-
-/**
  * Group a flat array of RawParagraph objects into the document's section
  * structure (front-matter → sections → claims → abstract).
+ *
+ * Front-matter sections are enriched with parsed metadata via parseFrontMatter.
  *
  * @param {RawParagraph[]} paragraphs
  * @returns {Array}
  */
 export function classifySections(paragraphs) {
-  const sections    = [];
-  let currentSection = null; // non-claims section being built
-  let mode          = 'start';
-  let claimParas    = [];
+  const sections     = [];
+  let currentSection = null;
+  let mode           = 'start';
+  let claimParas     = [];
 
-  // Push whatever non-claims section is in progress.
   const pushSection = () => {
-    if (currentSection) { sections.push(currentSection); currentSection = null; }
+    if (!currentSection) return;
+    if (currentSection.type === 'front-matter') {
+      const fm = parseFrontMatter(currentSection.paragraphs);
+      currentSection.title        = fm.title;
+      currentSection.inventors    = fm.inventors;
+      currentSection.docketNumber = fm.docketNumber;
+      currentSection.clientRef    = fm.clientRef;
+    }
+    sections.push(currentSection);
+    currentSection = null;
   };
 
-  // Resolve the claims buffer into a claims section entry.
   const pushClaims = () => {
     if (claimParas.length > 0) {
       sections.push({
@@ -251,7 +361,6 @@ export function classifySections(paragraphs) {
     }
   };
 
-  // Flush whichever accumulator is active before switching modes.
   const flushActive = () => {
     if (mode === 'claims') pushClaims(); else pushSection();
   };
@@ -260,7 +369,7 @@ export function classifySections(paragraphs) {
     const text = para.text.trim();
     if (!text) continue;
 
-    // ── Claims section opener ──────────────────────────────────
+    // ── Claims section opener ─────────────────────────────────
     if (
       /^what\s+is\s+claimed\s+is\s*:/i.test(text) ||
       /^\s*claims\s*$/i.test(text)                 ||
@@ -269,11 +378,11 @@ export function classifySections(paragraphs) {
     ) {
       flushActive();
       mode       = 'claims';
-      claimParas = [para]; // keep opener so parseClaims can skip it
+      claimParas = [para];
       continue;
     }
 
-    // ── Abstract heading (centered paragraph whose sole text is "Abstract") ─
+    // ── Abstract heading ──────────────────────────────────────
     if (/^abstract$/i.test(text) && para.isCentered) {
       flushActive();
       mode           = 'abstract';
@@ -281,7 +390,7 @@ export function classifySections(paragraphs) {
       continue;
     }
 
-    if (mode === 'claims')  { claimParas.push(para); continue; }
+    if (mode === 'claims')   { claimParas.push(para); continue; }
     if (mode === 'abstract') { currentSection.text = currentSection.text ? currentSection.text + '\n' + text : text; continue; }
 
     // ── Section heading ───────────────────────────────────────
@@ -300,7 +409,6 @@ export function classifySections(paragraphs) {
     currentSection.paragraphs.push(para);
   }
 
-  // Final flush
   if (mode === 'claims') pushClaims(); else pushSection();
   return sections;
 }
@@ -309,7 +417,6 @@ function _isSectionHeadingPara(para) {
   const style = (para.style || '').toLowerCase();
   if (style === 'section' || style === 'sectionheading' || style.includes('section')) return true;
 
-  // Fall back to content heuristic for centered unnumbered paragraphs
   if (para.isCentered && para.number === null) {
     const text = para.text.trim();
     return /^(background|field|summary|brief description|detailed description|description of|drawings|technical field|cross.reference)/i.test(text);
@@ -323,19 +430,16 @@ function _isNumberedPara(pEl, numId, styleNames) {
   const pPr = firstChild(pEl, 'pPr');
   if (!pPr) return false;
 
-  const pStyle   = firstChild(pPr, 'pStyle');
+  const pStyle    = firstChild(pPr, 'pStyle');
   const styleName = wVal(pStyle);
 
-  // Check if the applied style implies bracket numbering
   if (styleName && styleNames.has(styleName)) {
-    // An explicit numId="0" overrides the style and removes numbering
     const numPr   = firstChild(pPr, 'numPr');
     const numIdEl = numPr ? firstChild(numPr, 'numId') : null;
     if (numIdEl && wVal(numIdEl) === '0') return false;
     return true;
   }
 
-  // Check for an inline numPr that references the target numId directly
   const numPr   = firstChild(pPr, 'numPr');
   const numIdEl = numPr ? firstChild(numPr, 'numId') : null;
   return wVal(numIdEl) === numId;
@@ -362,16 +466,11 @@ function _tableText(tableEl) {
   return parts.join('').trim();
 }
 
-// ─── Internal: title extraction from front-matter ─────────────────────────
+// ─── Internal: title from front-matter ────────────────────────────────────
 
 function _extractTitle(sections) {
   const fm = sections.find(s => s.type === 'front-matter');
-  if (!fm || !fm.paragraphs || fm.paragraphs.length === 0) return null;
-  // First unnumbered paragraph is typically the title
-  for (const p of fm.paragraphs) {
-    if (p.number === null) return p.text.trim();
-  }
-  return fm.paragraphs[0].text.trim() || null;
+  return (fm && fm.title) ? fm.title : null;
 }
 
 // ─── Internal: build fullTextWithNumbers ──────────────────────────────────
@@ -419,7 +518,6 @@ function _buildFullText(sections) {
  * @returns {Promise<object | null>}
  */
 export async function parsePatentDocx(arrayBuffer) {
-  // Resolve JSZip: global in browser, npm package in Node
   let JSZipCtor;
   if (typeof globalThis.JSZip !== 'undefined') {
     JSZipCtor = globalThis.JSZip;
@@ -438,14 +536,12 @@ export async function parsePatentDocx(arrayBuffer) {
 
   if (!documentXml) return null;
 
-  // Resolve numbering — null means fall back to mammoth
   const numberingInfo =
     numberingXml && stylesXml ? resolveNumbering(numberingXml, stylesXml) : null;
   if (!numberingInfo) return null;
 
   const { numId, styleNames } = numberingInfo;
 
-  // Parse document body
   const docDom = parseXml(documentXml);
   const body   = docDom.getElementsByTagNameNS(W_NS, 'body')[0];
   if (!body) return null;
@@ -473,20 +569,19 @@ export async function parsePatentDocx(arrayBuffer) {
         text,
         style:      _getParagraphStyle(child),
         isCentered: _isCenteredPara(child),
+        isBold:     _isBoldPara(child),
       });
     } else if (ln === 'tbl') {
       const text = _tableText(child);
       if (text) {
-        rawParagraphs.push({ number: null, text, style: 'Table', isCentered: false });
+        rawParagraphs.push({ number: null, text, style: 'Table', isCentered: false, isBold: false });
       }
     }
-    // sectPr and other body-level elements are intentionally ignored
   }
 
-  // No numbered paragraphs found — signal caller to use mammoth fallback
   if (counter === 0) return null;
 
-  const sections          = classifySections(rawParagraphs);
+  const sections            = classifySections(rawParagraphs);
   const fullTextWithNumbers = _buildFullText(sections);
 
   return {

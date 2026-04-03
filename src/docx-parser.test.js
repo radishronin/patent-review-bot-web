@@ -20,6 +20,7 @@ import {
   extractParagraphText,
   classifySections,
   parseClaims,
+  parseFrontMatter,
 } from './docx-parser.js';
 
 // ─── XML Fixtures ─────────────────────────────────────────────────────────
@@ -385,6 +386,127 @@ describe('classifySections', () => {
     const sections = classifySections([fieldHeading, fieldBody]);
     const fieldSection = sections.find(s => s.type === 'section');
     assert.equal(fieldSection.paragraphs[0].number, '[0001]');
+  });
+
+  test('front-matter section is enriched with parseFrontMatter metadata', () => {
+    const pb = (text, isCentered = false, isBold = false) =>
+      ({ text, number: null, style: 'Normal', isCentered, isBold });
+    const paragraphs = [
+      pb('UNITED STATES PATENT APPLICATION', true, true),
+      pb('FOR', true, true),
+      pb('Method for Automated Review', true, true), // title
+      { text: 'FIELD OF THE INVENTION', number: null, style: 'SECTION', isCentered: false, isBold: false },
+    ];
+    const sections = classifySections(paragraphs);
+    const fm = sections.find(s => s.type === 'front-matter');
+    assert.ok(fm, 'Should have a front-matter section');
+    assert.equal(fm.title, 'Method for Automated Review');
+  });
+
+});
+
+// ─── Tests: parseFrontMatter ──────────────────────────────────────────────
+
+describe('parseFrontMatter', () => {
+
+  /** Convenience factory for a RawParagraph with bold/centered flags */
+  const p = (text, isCentered = false, isBold = false) =>
+    ({ text, number: null, style: 'Normal', isCentered, isBold });
+
+  // Cover-page boilerplate paragraphs
+  const usApp       = p('UNITED STATES PATENT APPLICATION', true, true);
+  const forPara     = p('FOR', true, true);
+  const titlePara   = p('System for Automated Patent Review', true, true);
+  const titlePara2  = p('Style Transfer for Multi-layer Documents', true, true);
+  const emptyPara   = p('');
+
+  // Inventor section
+  const invLabel    = p('Inventors:', true, false);
+  const inventor1   = p('John Doe', true, false);
+  const inventor2   = p('Jane Smith', true, false);
+
+  // Docket / client ref
+  const docketPara  = p('Attorney Docket No.: 8828-604', true, false);
+  const clientPara  = p('Client Reference No.: P14254-US', true, false);
+
+  test('extracts title as first centered+bold paragraph after "FOR"', () => {
+    const fm = parseFrontMatter([usApp, forPara, titlePara]);
+    assert.equal(fm.title, 'System for Automated Patent Review');
+  });
+
+  test('skips empty paragraphs between "FOR" and title', () => {
+    const fm = parseFrontMatter([forPara, emptyPara, emptyPara, titlePara]);
+    assert.equal(fm.title, 'System for Automated Patent Review');
+  });
+
+  test('"UNITED STATES PATENT APPLICATION" is NOT returned as title', () => {
+    const fm = parseFrontMatter([usApp, forPara, titlePara]);
+    assert.notEqual(fm.title, 'UNITED STATES PATENT APPLICATION');
+    assert.notEqual(fm.title, 'FOR');
+  });
+
+  test('returns null title when "FOR" anchor is absent', () => {
+    // Without the "FOR" anchor, no title is extracted
+    const fm = parseFrontMatter([usApp, titlePara]);
+    assert.equal(fm.title, null);
+  });
+
+  test('returns null title when nothing after "FOR" is centered+bold', () => {
+    const notBold = p('Some text', true, false);
+    const fm = parseFrontMatter([forPara, notBold]);
+    assert.equal(fm.title, null);
+  });
+
+  test('extracts inventor names after "Inventors:" label', () => {
+    const fm = parseFrontMatter([forPara, titlePara, invLabel, inventor1, inventor2, docketPara]);
+    assert.deepEqual(fm.inventors, ['John Doe', 'Jane Smith']);
+  });
+
+  test('stops inventor extraction at docket line', () => {
+    const fm = parseFrontMatter([invLabel, inventor1, docketPara, inventor2]);
+    assert.equal(fm.inventors.length, 1);
+    assert.equal(fm.inventors[0], 'John Doe');
+  });
+
+  test('skips empty lines within inventor section', () => {
+    const fm = parseFrontMatter([invLabel, emptyPara, inventor1, emptyPara, inventor2, docketPara]);
+    assert.deepEqual(fm.inventors, ['John Doe', 'Jane Smith']);
+  });
+
+  test('extracts attorney docket number', () => {
+    const fm = parseFrontMatter([docketPara]);
+    assert.equal(fm.docketNumber, '8828-604');
+  });
+
+  test('extracts client reference number', () => {
+    const fm = parseFrontMatter([clientPara]);
+    assert.equal(fm.clientRef, 'P14254-US');
+  });
+
+  test('handles combined docket + clientRef on separate lines', () => {
+    const fm = parseFrontMatter([docketPara, clientPara]);
+    assert.equal(fm.docketNumber, '8828-604');
+    assert.equal(fm.clientRef, 'P14254-US');
+  });
+
+  test('returns empty inventors array when no "Inventors:" heading present', () => {
+    const fm = parseFrontMatter([usApp, forPara, titlePara]);
+    assert.deepEqual(fm.inventors, []);
+  });
+
+  test('all fields null/empty for empty paragraph list', () => {
+    const fm = parseFrontMatter([]);
+    assert.equal(fm.title, null);
+    assert.deepEqual(fm.inventors, []);
+    assert.equal(fm.docketNumber, null);
+    assert.equal(fm.clientRef, null);
+  });
+
+  test('title repeat pattern: second title occurrence still extracted correctly', () => {
+    // Template repeats the title before the first section heading
+    const fm = parseFrontMatter([usApp, forPara, titlePara2, invLabel, inventor1, docketPara, titlePara2]);
+    // Should still get the first occurrence after FOR
+    assert.equal(fm.title, 'Style Transfer for Multi-layer Documents');
   });
 
 });
