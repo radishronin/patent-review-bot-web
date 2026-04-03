@@ -219,93 +219,192 @@
     .status-msg.error     { color: #b06060; }
     .status-msg.working   { color: var(--text-muted); }
 
-    /* ── Analysis section ──────────────────────────── */
-    .analysis-section {
+    /* ── Analyzing indicator ──────────────────────── */
+    .analyzing-indicator {
       display: none;
       width: 100%;
       max-width: 640px;
       margin-top: 2rem;
+      text-align: center;
+      padding: 2.5rem 1rem;
+      animation: analyzing-fade 1.8s ease-in-out infinite alternate;
     }
 
-    .analysis-section.visible {
-      display: block;
+    .analyzing-indicator.visible { display: block; }
+
+    @keyframes analyzing-fade {
+      from { opacity: 0.45; }
+      to   { opacity: 1; }
     }
 
-    .analysis-header {
-      display: flex;
-      align-items: baseline;
-      gap: 1rem;
-      margin-bottom: 0.75rem;
-      padding-bottom: 0.75rem;
-      border-bottom: 1px solid var(--border);
+    .analyzing-text {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      letter-spacing: 0.04em;
     }
 
-    .analysis-header h2 {
-      font-size: 0.72rem;
-      font-weight: normal;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+    .analyzing-text::after {
+      content: '';
+      animation: analyzing-dots 1.6s steps(4, end) infinite;
+    }
+
+    @keyframes analyzing-dots {
+      0%   { content: ''; }
+      25%  { content: '.'; }
+      50%  { content: '..'; }
+      75%  { content: '...'; }
+    }
+
+    .analyzing-sub {
+      margin-top: 0.5rem;
+      font-size: 0.78rem;
       color: var(--text-muted);
+      letter-spacing: 0.04em;
     }
 
-    .analysis-header .section-label {
-      font-size: 0.7rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent-light);
-      font-style: normal;
-    }
-
-    /* Spinner shown while streaming/waiting */
-    .spinner {
+    /* ── Overview dashboard ────────────────────────── */
+    .overview-dashboard {
       display: none;
-      width: 14px;
-      height: 14px;
-      border: 1.5px solid var(--border);
-      border-top-color: var(--accent-light);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      margin-left: auto;
-      flex-shrink: 0;
-    }
-
-    .spinner.visible { display: block; }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .analysis-output {
+      width: 100%;
+      max-width: 640px;
+      margin-top: 1.5rem;
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: 4px;
       padding: 1.5rem;
-      max-height: 520px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
     }
 
-    .analysis-output::-webkit-scrollbar {
-      width: 6px;
+    .overview-dashboard.visible { display: block; }
+
+    .overview-header {
+      margin-bottom: 1.25rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
     }
 
-    .analysis-output::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    .analysis-output::-webkit-scrollbar-thumb {
-      background: var(--border);
-      border-radius: 3px;
-    }
-
-    .analysis-output pre {
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 0.82rem;
-      line-height: 1.7;
+    .overview-title {
+      font-size: 1.05rem;
+      font-weight: normal;
       color: var(--text-primary);
-      white-space: pre-wrap;
-      word-break: break-word;
+      letter-spacing: 0.01em;
+      line-height: 1.4;
+    }
+
+    .overview-summary {
+      margin-top: 0.45rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      line-height: 1.55;
+    }
+
+    .overview-error {
+      font-size: 0.85rem;
+      color: #b06060;
+      font-style: italic;
+      margin-bottom: 0.75rem;
+    }
+
+    .retry-btn {
+      font-family: inherit;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 0.3rem 0.8rem;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .retry-btn:hover {
+      border-color: var(--border-active);
+      color: var(--text-primary);
+    }
+
+    /* ── Risk grid ─────────────────────────────────── */
+    .risk-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .risk-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.9rem 1rem;
+    }
+
+    .risk-card-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 0.45rem;
+    }
+
+    .risk-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.18rem 0.5rem;
+      border-radius: 2px;
+      margin-bottom: 0.55rem;
+      border: 1px solid;
+    }
+
+    .risk-badge.LOW {
+      border-color: var(--success);
+      color: var(--success-light);
+    }
+
+    .risk-badge.MED {
+      border-color: var(--warning);
+      color: var(--warning-light);
+    }
+
+    .risk-badge.HI {
+      border-color: #8b3030;
+      color: #c05050;
+    }
+
+    .risk-headline {
+      font-size: 0.82rem;
+      color: var(--text-primary);
+      line-height: 1.5;
+    }
+
+    .risk-para-refs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.55rem;
+    }
+
+    .risk-para-ref {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 0.1rem 0.35rem;
+      font-family: 'Courier New', monospace;
+      cursor: default;
+    }
+
+    /* ── Token usage footer ────────────────────────── */
+    .token-usage {
+      text-align: right;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
     }
 
     /* ── Validation result ─────────────────────────── */
@@ -426,16 +525,17 @@
   <!-- ── Shared status / error line ──────────────────── -->
   <div class="status-msg" id="statusMsg"></div>
 
-  <!-- ── Phase 2: Analysis output ────────────────────── -->
-  <div class="analysis-section" id="analysisSection">
-    <div class="analysis-header">
-      <h2>Preliminary Review</h2>
-      <span class="section-label">&sect;101 &middot; &sect;102 &middot; &sect;103 &middot; &sect;112</span>
-      <div class="spinner" id="spinner"></div>
-    </div>
-    <div class="analysis-output">
-      <pre id="analysisOutput"></pre>
-    </div>
+  <!-- ── Phase 2: Analyzing indicator ─────────────────── -->
+  <div class="analyzing-indicator" id="analyzingIndicator">
+    <div class="analyzing-text" id="analyzingText">Analyzing</div>
+    <div class="analyzing-sub">Performing structured patent review</div>
+  </div>
+
+  <!-- ── Phase 3: Overview Dashboard ──────────────────── -->
+  <div class="overview-dashboard" id="overviewDashboard">
+    <div class="overview-header" id="overviewHeader"></div>
+    <div class="risk-grid"       id="riskGrid"></div>
+    <div class="token-usage"     id="tokenUsage"></div>
   </div>
 
   <footer>Patent Review System &mdash; Prototype</footer>
@@ -459,38 +559,39 @@
     const LLMProvider = {
       /**
        * Send a user message and receive a streamed text response.
-       * Yields chunks via the onChunk callback as they arrive.
+       * Yields text chunks via onChunk as they arrive.
+       * Returns token usage captured from message_start / message_delta events.
        *
-       * @param {string}   userMessage  - The full prompt text to send.
-       * @param {Function} onChunk      - Called with each text delta string.
-       * @returns {Promise<void>}
+       * @param {string}   userMessage
+       * @param {Function} onChunk
+       * @param {{ maxTokens?: number, system?: string }} [opts]
+       * @returns {Promise<{ inputTokens: number, outputTokens: number }>}
        */
-      async streamMessage(userMessage, onChunk) {
-        // POST to the Cloudflare Worker proxy — no API key in the browser
+      async streamMessage(userMessage, onChunk, { maxTokens = 2048, system = null } = {}) {
+        const body = {
+          model:      MODEL,
+          max_tokens: maxTokens,
+          stream:     true,
+          messages:   [{ role: 'user', content: userMessage }],
+        };
+        if (system) body.system = system;
+
         const response = await fetch(PROXY_URL, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            max_tokens: 2048,
-            stream: true,
-            messages: [
-              { role: 'user', content: userMessage }
-            ],
-          }),
+          method:  'POST',
+          headers: { 'content-type': 'application/json' },
+          body:    JSON.stringify(body),
         });
 
         if (!response.ok) {
-          const body = await response.text();
-          throw new Error(`API error ${response.status}: ${body}`);
+          const text = await response.text();
+          throw new Error(`API error ${response.status}: ${text}`);
         }
 
-        // Parse the SSE stream
         const reader  = response.body.getReader();
         const decoder = new TextDecoder();
         let   buffer  = '';
+        let   inputTokens  = 0;
+        let   outputTokens = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -498,32 +599,89 @@
 
           buffer += decoder.decode(value, { stream: true });
 
-          // SSE events are separated by double newlines
           const events = buffer.split('\n\n');
-          buffer = events.pop(); // keep any incomplete trailing event
+          buffer = events.pop();
 
           for (const event of events) {
             const dataLine = event.split('\n').find(l => l.startsWith('data:'));
             if (!dataLine) continue;
 
             const raw = dataLine.slice(5).trim();
-            if (raw === '[DONE]') return;
+            if (raw === '[DONE]') return { inputTokens, outputTokens };
 
             let parsed;
             try { parsed = JSON.parse(raw); } catch { continue; }
 
+            if (parsed.type === 'message_start') {
+              inputTokens = parsed.message?.usage?.input_tokens || 0;
+            }
+            if (parsed.type === 'message_delta') {
+              outputTokens = parsed.usage?.output_tokens || 0;
+            }
             if (parsed.type === 'content_block_delta' &&
                 parsed.delta?.type === 'text_delta') {
               onChunk(parsed.delta.text);
             }
           }
         }
+
+        return { inputTokens, outputTokens };
+      },
+
+      /**
+       * Make a non-streaming call and parse the response text as JSON.
+       * Strips any markdown code fences before parsing.
+       *
+       * @param {string} userMessage
+       * @param {{ maxTokens?: number, system?: string }} [opts]
+       * @returns {Promise<{ parsed: object, usage: { inputTokens: number, outputTokens: number } }>}
+       */
+      async sendJSON(userMessage, { maxTokens = 1024, system = null } = {}) {
+        const body = {
+          model:      MODEL,
+          max_tokens: maxTokens,
+          stream:     false,
+          messages:   [{ role: 'user', content: userMessage }],
+        };
+        if (system) body.system = system;
+
+        const response = await fetch(PROXY_URL, {
+          method:  'POST',
+          headers: { 'content-type': 'application/json' },
+          body:    JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`API error ${response.status}: ${text}`);
+        }
+
+        const data  = await response.json();
+        const text  = (data.content || [])
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('');
+        const usage = {
+          inputTokens:  data.usage?.input_tokens  || 0,
+          outputTokens: data.usage?.output_tokens || 0,
+        };
+
+        // Strip markdown fences if the model wrapped the JSON
+        const clean  = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        const parsed = JSON.parse(clean);
+
+        return { parsed, usage };
       },
     };
 
     // =============================================================
     // PROMPT
     // =============================================================
+
+    const OVERVIEW_SYSTEM_PROMPT =
+      'You are a patent attorney assistant performing triage-level review of patent applications. ' +
+      'Return ONLY valid JSON with no markdown fencing, no preamble, no explanation — just the JSON object.';
+
     const REVIEW_STRUCTURE = `Structure your analysis under four headings:
 
 ## §101 — Subject Matter Eligibility
@@ -549,7 +707,7 @@ Conclude with a brief **Summary of Key Risks** and suggested next steps.`;
      * @param {string | object} docTextOrStructured
      * @returns {string}
      */
-    function buildReviewPrompt(docTextOrStructured) {
+    function buildFullReviewPrompt(docTextOrStructured) {
       const preamble = 'You are a patent attorney assistant with expertise in U.S. patent law. ' +
         'Perform a preliminary patentability review of the following patent application document.';
 
@@ -594,6 +752,80 @@ ${REVIEW_STRUCTURE}
 ---
 PATENT APPLICATION DOCUMENT:
 ${doc.fullTextWithNumbers}`;
+    }
+
+    /**
+     * Build the triage overview prompt.
+     * Accepts either a plain string or a ParsedPatentDocument.
+     * Instructs the model to respond with structured JSON.
+     *
+     * @param {string | object} docTextOrStructured
+     * @returns {string}
+     */
+    function buildOverviewPrompt(docTextOrStructured) {
+      const isStructured = typeof docTextOrStructured !== 'string';
+      const docText      = isStructured
+        ? docTextOrStructured.fullTextWithNumbers
+        : docTextOrStructured;
+
+      let metaPreamble = '';
+      if (isStructured) {
+        const doc           = docTextOrStructured;
+        const claimsSec     = doc.sections.find(s => s.type === 'claims');
+        const claimCount    = claimsSec ? claimsSec.claims.length : 0;
+        const indClaims     = claimsSec
+          ? claimsSec.claims.filter(c => c.dependsOn === null).map(c => c.number)
+          : [];
+        const sectionNames  = doc.sections
+          .filter(s => s.type === 'section' && s.heading)
+          .map(s => s.heading)
+          .join(', ');
+        const depSummary    = claimsSec
+          ? claimsSec.claims
+              .filter(c => c.dependsOn !== null)
+              .map(c => 'Claim ' + c.number + ' \u2192 Claim ' + c.dependsOn)
+              .join(', ')
+          : '';
+
+        metaPreamble = [
+          'DOCUMENT METADATA:',
+          '- Title: ' + (doc.title || 'Unknown'),
+          '- Numbered paragraphs: ' + doc.metadata.totalNumberedParagraphs,
+          '- Sections: ' + (sectionNames || 'none identified'),
+          '- Total claims: ' + claimCount,
+          '- Independent claims: ' + (indClaims.length > 0 ? indClaims.join(', ') : 'none'),
+          depSummary ? '- Dependencies: ' + depSummary : '',
+        ].filter(Boolean).join('\n') + '\n\n';
+      }
+
+      return metaPreamble +
+`Analyze this patent application and return a JSON object with exactly this structure:
+
+{
+  "title": "the invention title",
+  "summary": "one sentence summarizing what the invention does, suitable for a dashboard",
+  "risks": {
+    "101": {
+      "level": "LOW" | "MED" | "HI",
+      "headline": "one sentence explaining the key concern, or 'No significant issues identified'",
+      "paragraphs": ["[XXXX]", ...] — up to 5 most relevant paragraph numbers, empty array if none
+    },
+    "102": { "level": "...", "headline": "...", "paragraphs": [...] },
+    "103": { "level": "...", "headline": "...", "paragraphs": [...] },
+    "112": { "level": "...", "headline": "...", "paragraphs": [...] }
+  },
+  "independentClaims": [1, 8, 15]
+}
+
+Risk level guide:
+- LOW: no significant concerns from the disclosure
+- MED: potential issues that warrant attention but are likely addressable
+- HI: serious concerns that could result in rejection or require substantial revision
+
+Be concise. Each headline must be one sentence.
+
+PATENT APPLICATION DOCUMENT:
+${docText}`;
     }
 
     // =============================================================
@@ -1003,11 +1235,29 @@ ${doc.fullTextWithNumbers}`;
     const fileResult      = document.getElementById('fileResult');
     const fileNameEl      = document.getElementById('fileName');
     const fileMetaEl      = document.getElementById('fileMeta');
-    const validationResult = document.getElementById('validationResult');
-    const statusMsg       = document.getElementById('statusMsg');
-    const analysisSection = document.getElementById('analysisSection');
-    const analysisOutput  = document.getElementById('analysisOutput');
-    const spinner         = document.getElementById('spinner');
+    const validationResult  = document.getElementById('validationResult');
+    const statusMsg         = document.getElementById('statusMsg');
+    const analyzingIndicator = document.getElementById('analyzingIndicator');
+    const analyzingTextEl   = document.getElementById('analyzingText');
+    const overviewDashboard = document.getElementById('overviewDashboard');
+    const overviewHeaderEl  = document.getElementById('overviewHeader');
+    const riskGridEl        = document.getElementById('riskGrid');
+    const tokenUsageEl      = document.getElementById('tokenUsage');
+
+    const tokenUsage = { input: 0, output: 0 };
+
+    function addUsage(usage) {
+      tokenUsage.input  += (usage.inputTokens  || 0);
+      tokenUsage.output += (usage.outputTokens || 0);
+      updateTokenDisplay();
+    }
+
+    function updateTokenDisplay() {
+      tokenUsageEl.textContent =
+        tokenUsage.input.toLocaleString() + ' in \u00b7 ' +
+        tokenUsage.output.toLocaleString() + ' out \u00b7 ' +
+        (tokenUsage.input + tokenUsage.output).toLocaleString() + ' total tokens';
+    }
 
     function formatBytes(bytes) {
       if (bytes < 1024)            return bytes + ' B';
@@ -1019,10 +1269,6 @@ ${doc.fullTextWithNumbers}`;
       statusMsg.textContent = msg;
       statusMsg.className   = 'status-msg' + (msg ? ' visible' : '');
       if (type) statusMsg.classList.add(type);
-    }
-
-    function setSpinner(active) {
-      spinner.classList.toggle('visible', active);
     }
 
     // =============================================================
@@ -1070,8 +1316,11 @@ ${doc.fullTextWithNumbers}`;
       // ── Clear previous results ─────────────────────────────────
       validationResult.className = 'validation-result';
       validationResult.innerHTML = '';
-      analysisOutput.textContent = '';
-      analysisSection.classList.remove('visible');
+      overviewDashboard.style.display = 'none';
+      analyzingIndicator.classList.remove('visible');
+      tokenUsage.input = 0;
+      tokenUsage.output = 0;
+      tokenUsageEl.textContent = '';
 
       // ── Validate file type ─────────────────────────────────────
       const isDocx = file.name.toLowerCase().endsWith('.docx') ||
@@ -1168,27 +1417,102 @@ ${doc.fullTextWithNumbers}`;
       }
       validationResult.classList.add('visible');
 
-      // ── Phase 2b: send to LLM, stream response ────────────────
+      // ── Phase 2b: send to LLM, get structured overview ────────
       setStatus('Sending to model for analysis\u2026', 'working');
-      analysisSection.classList.add('visible');
-      analysisOutput.textContent = '';
-      setSpinner(true);
+      overviewDashboard.style.display = 'none';
+      analyzingIndicator.classList.add('visible');
+      analyzingTextEl.textContent = 'Analyzing';
 
-      // Use structured doc for prompt when available (includes [XXXX] numbers)
-      const prompt = buildReviewPrompt(parsedDoc || docText);
+      const prompt = buildOverviewPrompt(parsedDoc || docText);
 
+      let result = null;
       try {
-        await LLMProvider.streamMessage(prompt, (chunk) => {
-          analysisOutput.textContent += chunk;
-          const outputBox = analysisOutput.parentElement;
-          outputBox.scrollTop = outputBox.scrollHeight;
-        });
-        setStatus('');
-      } catch (err) {
-        setStatus('Analysis failed: ' + err.message, 'error');
-      } finally {
-        setSpinner(false);
+        // First attempt
+        result = await LLMProvider.sendJSON(prompt, { maxTokens: 1024, system: OVERVIEW_SYSTEM_PROMPT });
+      } catch (firstErr) {
+        // Single retry
+        try {
+          analyzingTextEl.textContent = 'Retrying';
+          result = await LLMProvider.sendJSON(prompt, { maxTokens: 1024, system: OVERVIEW_SYSTEM_PROMPT });
+        } catch (secondErr) {
+          analyzingIndicator.classList.remove('visible');
+          setStatus('Analysis failed: ' + secondErr.message, 'error');
+          return;
+        }
       }
+
+      analyzingIndicator.classList.remove('visible');
+      addUsage(result.usage);
+      renderOverviewDashboard(result.parsed);
+      setStatus('');
+    }
+
+    function renderOverviewDashboard(overview) {
+      // Header: title + summary
+      overviewHeaderEl.innerHTML = '';
+      if (overview.title) {
+        const titleEl = document.createElement('div');
+        titleEl.className = 'overview-title';
+        titleEl.textContent = overview.title;
+        overviewHeaderEl.appendChild(titleEl);
+      }
+      if (overview.summary) {
+        const summaryEl = document.createElement('div');
+        summaryEl.className = 'overview-summary';
+        summaryEl.textContent = overview.summary;
+        overviewHeaderEl.appendChild(summaryEl);
+      }
+
+      // Risk grid
+      riskGridEl.innerHTML = '';
+      const RISK_LABELS = {
+        '101': '\u00a7\u202f101 \u2014 Eligibility',
+        '102': '\u00a7\u202f102 \u2014 Novelty',
+        '103': '\u00a7\u202f103 \u2014 Obviousness',
+        '112': '\u00a7\u202f112 \u2014 Enablement',
+      };
+
+      const risks = overview.risks || {};
+      Object.entries(RISK_LABELS).forEach(([key, label]) => {
+        const risk = risks[key] || { level: 'LOW', headline: '', paragraphs: [] };
+        const level = (risk.level || 'LOW').toUpperCase();
+
+        const card = document.createElement('div');
+        card.className = 'risk-card';
+
+        const labelEl = document.createElement('div');
+        labelEl.className = 'risk-card-label';
+        labelEl.textContent = label;
+        card.appendChild(labelEl);
+
+        const badge = document.createElement('span');
+        badge.className = 'risk-badge ' + level;
+        badge.textContent = level;
+        card.appendChild(badge);
+
+        if (risk.headline) {
+          const hl = document.createElement('div');
+          hl.className = 'risk-headline';
+          hl.textContent = risk.headline;
+          card.appendChild(hl);
+        }
+
+        if (Array.isArray(risk.paragraphs) && risk.paragraphs.length > 0) {
+          const refs = document.createElement('div');
+          refs.className = 'risk-para-refs';
+          risk.paragraphs.forEach(ref => {
+            const span = document.createElement('span');
+            span.className = 'risk-para-ref';
+            span.textContent = ref;
+            refs.appendChild(span);
+          });
+          card.appendChild(refs);
+        }
+
+        riskGridEl.appendChild(card);
+      });
+
+      overviewDashboard.style.display = 'block';
     }
 
     // =============================================================
