@@ -394,7 +394,8 @@
       border-radius: 2px;
       padding: 0.1rem 0.35rem;
       font-family: 'Courier New', monospace;
-      cursor: default;
+      cursor: pointer;
+      position: relative;
     }
 
     /* ── Token usage footer ────────────────────────── */
@@ -405,6 +406,103 @@
       letter-spacing: 0.02em;
       padding-top: 0.75rem;
       border-top: 1px solid var(--border);
+    }
+
+    /* ── Drill-down button ─────────────────────────── */
+    .drill-down-btn {
+      display: inline-block;
+      margin-top: 0.6rem;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.72rem;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease;
+    }
+    .drill-down-btn:hover {
+      border-color: var(--border-active);
+      color: var(--text-primary);
+    }
+    .drill-down-btn.loading {
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    /* ── Drill-down panel ──────────────────────────── */
+    .drill-down-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1rem 1.25rem;
+      margin-top: 0.35rem;
+      margin-bottom: 0.4rem;
+      max-height: 400px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .drill-down-output {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Paragraph ref tooltip ─────────────────────── */
+    .para-tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.75rem;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      max-width: 320px;
+      width: max-content;
+      white-space: normal;
+      pointer-events: none;
+      z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    /* ── Paragraph ref popover ─────────────────────── */
+    .para-popover {
+      position: fixed;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      font-size: 0.82rem;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      color: var(--text-primary);
+      line-height: 1.6;
+      max-width: 500px;
+      max-height: 250px;
+      overflow-y: auto;
+      z-index: 20;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .para-popover-number {
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      color: var(--accent-light);
+      margin-bottom: 0.3rem;
     }
 
     /* ── Validation result ─────────────────────────── */
@@ -826,6 +924,40 @@ Be concise. Each headline must be one sentence.
 
 PATENT APPLICATION DOCUMENT:
 ${docText}`;
+    }
+
+    /**
+     * Build a targeted drill-down prompt for a specific §§ risk.
+     *
+     * @param {string} sectionKey  — '101' | '102' | '103' | '112'
+     * @param {{ level: string, headline: string }} risk
+     * @param {string} paragraphText — pre-extracted relevant paragraphs
+     * @param {string} claimsText    — full claims section text (may be empty)
+     * @returns {string}
+     */
+    function buildDrillDownPrompt(sectionKey, risk, paragraphText, claimsText) {
+      const sectionNames = {
+        '101': '35 U.S.C. \u00a7101 \u2014 Subject Matter Eligibility',
+        '102': '35 U.S.C. \u00a7102 \u2014 Novelty',
+        '103': '35 U.S.C. \u00a7103 \u2014 Obviousness',
+        '112': '35 U.S.C. \u00a7112 \u2014 Written Description & Enablement',
+      };
+
+      return `You are a patent attorney assistant. You previously identified a ${risk.level} risk under ${sectionNames[sectionKey]}:
+
+"${risk.headline}"
+
+Relevant paragraphs from the specification:
+${paragraphText || '(No specific paragraphs identified)'}
+
+${claimsText ? 'CLAIMS:\n' + claimsText : ''}
+
+Provide a detailed analysis of this specific issue. Be concrete and actionable:
+1. Explain the specific concern and why it matters
+2. Identify exactly which claim elements or specification passages are problematic
+3. Provide specific recommendations \u2014 suggest revised claim language, additional specification support, or arguments to overcome the issue
+
+Reference paragraph numbers [XXXX] when citing specific content. Be thorough but stay focused on this single \u00a7${sectionKey} issue.`;
     }
 
     // =============================================================
@@ -1272,6 +1404,13 @@ ${docText}`;
     }
 
     // =============================================================
+    // MODULE-LEVEL STATE
+    // =============================================================
+    let currentParsedDoc = null;   // ParsedPatentDocument from the structured parser
+    let currentDocText   = null;   // Raw text (fullTextWithNumbers or mammoth fallback)
+    let currentOverview  = null;   // Parsed JSON overview from the LLM
+
+    // =============================================================
     // CORE FLOW
     // =============================================================
 
@@ -1314,6 +1453,9 @@ ${docText}`;
 
     async function handleFile(file) {
       // ── Clear previous results ─────────────────────────────────
+      currentParsedDoc = null;
+      currentDocText   = null;
+      currentOverview  = null;
       validationResult.className = 'validation-result';
       validationResult.innerHTML = '';
       overviewDashboard.style.display = 'none';
@@ -1363,6 +1505,7 @@ ${docText}`;
       if (parsedDoc) {
         // Structured parse succeeded — use fullTextWithNumbers as the text
         docText = parsedDoc.fullTextWithNumbers;
+        currentParsedDoc = parsedDoc;
         // Enrich the file card with the detected title
         if (parsedDoc.title) {
           fileMetaEl.textContent = parsedDoc.title + ' \u00b7 ' + formatBytes(file.size);
@@ -1382,6 +1525,7 @@ ${docText}`;
         setStatus('Document appears to be empty or could not be parsed.', 'error');
         return;
       }
+      currentDocText = docText;
 
       // ── Phase 1.5: validate patent structure ──────────────────
       const validation = validatePatentDocument(docText);
@@ -1448,6 +1592,8 @@ ${docText}`;
     }
 
     function renderOverviewDashboard(overview) {
+      currentOverview = overview;
+
       // Header: title + summary
       overviewHeaderEl.innerHTML = '';
       if (overview.title) {
@@ -1462,6 +1608,9 @@ ${docText}`;
         summaryEl.textContent = overview.summary;
         overviewHeaderEl.appendChild(summaryEl);
       }
+
+      // Remove any existing drill-down panels
+      overviewDashboard.querySelectorAll('.drill-down-panel').forEach(el => el.remove());
 
       // Risk grid
       riskGridEl.innerHTML = '';
@@ -1479,6 +1628,7 @@ ${docText}`;
 
         const card = document.createElement('div');
         card.className = 'risk-card';
+        card.dataset.section = key;
 
         const labelEl = document.createElement('div');
         labelEl.className = 'risk-card-label';
@@ -1504,15 +1654,208 @@ ${docText}`;
             const span = document.createElement('span');
             span.className = 'risk-para-ref';
             span.textContent = ref;
+
+            // Tooltip on hover
+            let tooltipTimeout = null;
+            span.addEventListener('mouseenter', () => {
+              tooltipTimeout = setTimeout(() => {
+                const text = getParagraphText(ref);
+                if (!text) return;
+                const tip = document.createElement('div');
+                tip.className = 'para-tooltip';
+                tip.textContent = text.length > 150 ? text.slice(0, 150) + '\u2026' : text;
+                span.appendChild(tip);
+              }, 200);
+            });
+            span.addEventListener('mouseleave', () => {
+              clearTimeout(tooltipTimeout);
+              const tip = span.querySelector('.para-tooltip');
+              if (tip) tip.remove();
+            });
+
+            // Popover on click
+            span.addEventListener('click', (e) => {
+              e.stopPropagation();
+              // Close any existing popover
+              const existing = document.querySelector('.para-popover');
+              if (existing) {
+                existing.remove();
+                if (existing._sourceSpan === span) return; // toggle off
+              }
+
+              const text = getParagraphText(ref);
+              if (!text) return;
+
+              const popover = document.createElement('div');
+              popover.className = 'para-popover';
+              popover._sourceSpan = span;
+
+              const numEl = document.createElement('div');
+              numEl.className = 'para-popover-number';
+              numEl.textContent = ref;
+              popover.appendChild(numEl);
+
+              const body = document.createElement('div');
+              body.textContent = text;
+              popover.appendChild(body);
+
+              document.body.appendChild(popover);
+
+              // Position near the span
+              const rect = span.getBoundingClientRect();
+              const top  = rect.bottom + window.scrollY + 6;
+              let   left = rect.left + window.scrollX;
+              // Clamp to viewport
+              const maxLeft = window.innerWidth - 520;
+              if (left > maxLeft) left = maxLeft;
+              if (left < 8) left = 8;
+              popover.style.top  = top + 'px';
+              popover.style.left = left + 'px';
+
+              // Click outside to close
+              const closePopover = (ev) => {
+                if (!popover.contains(ev.target)) {
+                  popover.remove();
+                  document.removeEventListener('click', closePopover);
+                }
+              };
+              document.addEventListener('click', closePopover);
+            });
+
             refs.appendChild(span);
           });
           card.appendChild(refs);
         }
 
+        // Drill-down button for MED and HI risk cards
+        if (level === 'MED' || level === 'HI') {
+          const btn = document.createElement('button');
+          btn.className = 'drill-down-btn';
+          btn.textContent = 'Details';
+          btn.addEventListener('click', () => handleDrillDown(key));
+          card.appendChild(btn);
+        }
+
         riskGridEl.appendChild(card);
       });
 
+      // Create drill-down panels for all four sections (in order), insert before tokenUsage
+      const tokenUsageDiv = overviewDashboard.querySelector('.token-usage');
+      Object.keys(RISK_LABELS).forEach(key => {
+        const panel = document.createElement('div');
+        panel.className = 'drill-down-panel';
+        panel.id = 'drillPanel-' + key;
+        panel.style.display = 'none';
+        const pre = document.createElement('pre');
+        pre.className = 'drill-down-output';
+        panel.appendChild(pre);
+        overviewDashboard.insertBefore(panel, tokenUsageDiv);
+      });
+
       overviewDashboard.style.display = 'block';
+    }
+
+    /**
+     * Look up a paragraph's full text from the structured document by its [XXXX] number.
+     * Returns null if not found or no structured doc is loaded.
+     */
+    function getParagraphText(paraNumber) {
+      if (!currentParsedDoc) return null;
+      for (const section of currentParsedDoc.sections) {
+        if (!section.paragraphs) continue;
+        for (const p of section.paragraphs) {
+          if (p.number === paraNumber) return p.text;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Extract paragraphs matching the given [XXXX] numbers from the current document.
+     * Falls back to line-by-line search of currentDocText when no structured doc.
+     *
+     * @param {string[]} paraNumbers
+     * @returns {string}
+     */
+    function extractParagraphsByNumber(paraNumbers) {
+      if (!paraNumbers || paraNumbers.length === 0) return '';
+
+      const lines = [];
+
+      if (currentParsedDoc) {
+        paraNumbers.forEach(ref => {
+          const text = getParagraphText(ref);
+          if (text) lines.push(ref + ' ' + text);
+        });
+      } else if (currentDocText) {
+        const docLines = currentDocText.split('\n');
+        paraNumbers.forEach(ref => {
+          const match = docLines.find(l => l.trimStart().startsWith(ref));
+          if (match) lines.push(match.trim());
+        });
+      }
+
+      return lines.join('\n');
+    }
+
+    /**
+     * Handle a drill-down button click for the given section key.
+     * First click: streams detailed analysis into the panel.
+     * Subsequent clicks: toggle panel visibility.
+     */
+    async function handleDrillDown(sectionKey) {
+      const panel = document.getElementById('drillPanel-' + sectionKey);
+      const card  = overviewDashboard.querySelector(`[data-section="${sectionKey}"]`);
+      const btn   = card ? card.querySelector('.drill-down-btn') : null;
+      const pre   = panel.querySelector('.drill-down-output');
+
+      // Toggle if already fetched
+      if (panel.dataset.fetched === 'true') {
+        const visible = panel.style.display !== 'none';
+        panel.style.display = visible ? 'none' : 'block';
+        if (btn) btn.textContent = visible ? 'Details' : 'Hide';
+        return;
+      }
+
+      const risk = currentOverview && currentOverview.risks
+        ? currentOverview.risks[sectionKey]
+        : null;
+      if (!risk) return;
+
+      // Extract relevant paragraphs
+      const paragraphText = extractParagraphsByNumber(risk.paragraphs || []);
+
+      // Extract claims text
+      let claimsText = '';
+      if (currentParsedDoc) {
+        const claimsSec = currentParsedDoc.sections.find(s => s.type === 'claims');
+        if (claimsSec && claimsSec.claims) {
+          claimsText = claimsSec.claims.map(c => c.number + '. ' + c.text).join('\n');
+        }
+      }
+
+      const prompt = buildDrillDownPrompt(sectionKey, risk, paragraphText, claimsText);
+
+      panel.style.display = 'block';
+      pre.textContent = '';
+      if (btn) { btn.textContent = 'Analyzing\u2026'; btn.classList.add('loading'); }
+
+      const DRILLDOWN_SYSTEM = 'You are a patent attorney assistant providing detailed analysis of a specific patentability issue. Be concrete, cite paragraph numbers, and provide actionable recommendations.';
+
+      try {
+        const usage = await LLMProvider.streamMessage(prompt, (chunk) => {
+          pre.textContent += chunk;
+          panel.scrollTop = panel.scrollHeight;
+        }, { maxTokens: 2048, system: DRILLDOWN_SYSTEM });
+
+        addUsage(usage);
+        panel.dataset.fetched = 'true';
+        if (btn) { btn.textContent = 'Hide'; btn.classList.remove('loading'); }
+      } catch (err) {
+        pre.textContent = 'Analysis failed: ' + err.message;
+        panel.dataset.fetched = '';
+        if (btn) { btn.textContent = 'Retry'; btn.classList.remove('loading'); }
+      }
     }
 
     // =============================================================
