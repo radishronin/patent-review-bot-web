@@ -1701,14 +1701,10 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
 
               document.body.appendChild(popover);
 
-              // Position near the span
+              // Position near the span, clamped so the 500px popover stays on-screen
               const rect = span.getBoundingClientRect();
               const top  = rect.bottom + window.scrollY + 6;
-              let   left = rect.left + window.scrollX;
-              // Clamp to viewport
-              const maxLeft = window.innerWidth - 520;
-              if (left > maxLeft) left = maxLeft;
-              if (left < 8) left = 8;
+              const left = Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 510));
               popover.style.top  = top + 'px';
               popover.style.left = left + 'px';
 
