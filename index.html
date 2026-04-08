@@ -1131,38 +1131,40 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
 
       function resolveNumbering(numberingXml, stylesXml) {
         const numDoc = parseXml(numberingXml), stylesDoc = parseXml(stylesXml);
-        let abstractId = null;
+        const abstractIds = new Set();
         for (const an of numDoc.getElementsByTagNameNS(W_NS, 'abstractNum')) {
           for (const lvl of an.getElementsByTagNameNS(W_NS, 'lvl')) {
             const ilvl = lvl.getAttribute('w:ilvl') ?? lvl.getAttributeNS(W_NS, 'ilvl');
             if (ilvl !== '0') continue;
             const val = wVal(firstChild(lvl, 'lvlText'));
             if (val && val.includes('[%1]')) {
-              abstractId = an.getAttribute('w:abstractNumId') ?? an.getAttributeNS(W_NS, 'abstractNumId');
+              const aid = an.getAttribute('w:abstractNumId') ?? an.getAttributeNS(W_NS, 'abstractNumId');
+              if (aid !== null) abstractIds.add(aid);
               break;
             }
           }
-          if (abstractId !== null) break;
         }
-        if (abstractId === null) return null;
-        let numId = null;
+        if (abstractIds.size === 0) return null;
+        const numIds = new Set();
         for (const num of numDoc.getElementsByTagNameNS(W_NS, 'num')) {
-          if (wVal(firstChild(num, 'abstractNumId')) === abstractId) {
-            numId = num.getAttribute('w:numId') ?? num.getAttributeNS(W_NS, 'numId');
-            break;
+          const mapped = wVal(firstChild(num, 'abstractNumId'));
+          if (mapped !== null && abstractIds.has(mapped)) {
+            const nid = num.getAttribute('w:numId') ?? num.getAttributeNS(W_NS, 'numId');
+            if (nid !== null) numIds.add(nid);
           }
         }
-        if (numId === null) return null;
+        if (numIds.size === 0) return null;
         const styleNames = new Set();
         for (const style of stylesDoc.getElementsByTagNameNS(W_NS, 'style')) {
           const pPr = firstChild(style, 'pPr'), numPr = pPr ? firstChild(pPr, 'numPr') : null;
           if (!numPr) continue;
-          if (wVal(firstChild(numPr, 'numId')) !== numId) continue;
+          const sNumId = wVal(firstChild(numPr, 'numId'));
+          if (sNumId === null || !numIds.has(sNumId)) continue;
           const nv = wVal(firstChild(style, 'name')); if (nv) styleNames.add(nv);
           const sid = style.getAttribute('w:styleId') ?? style.getAttributeNS(W_NS, 'styleId');
           if (sid) styleNames.add(sid);
         }
-        return { numId, styleNames };
+        return { numIds, styleNames };
       }
 
       function extractParagraphText(pEl) {
@@ -1282,7 +1284,7 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
         return sections;
       }
 
-      function _isNumberedPara(pEl, numId, styleNames) {
+      function _isNumberedPara(pEl, numIds, styleNames) {
         const pPr = firstChild(pEl, 'pPr'); if (!pPr) return false;
         const styleName = wVal(firstChild(pPr, 'pStyle'));
         if (styleName && styleNames.has(styleName)) {
@@ -1290,7 +1292,7 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
           return !(numIdEl && wVal(numIdEl) === '0');
         }
         const numPr = firstChild(pPr, 'numPr'), numIdEl = numPr ? firstChild(numPr, 'numId') : null;
-        return wVal(numIdEl) === numId;
+        return numIdEl !== null && numIds.has(wVal(numIdEl));
       }
       function _getStyle(pEl) { const pPr = firstChild(pEl, 'pPr'); return wVal(pPr ? firstChild(pPr, 'pStyle') : null) || 'Normal'; }
       function _isCentered(pEl) { const pPr = firstChild(pEl, 'pPr'); if (!pPr) return false; return wVal(firstChild(pPr, 'jc')) === 'center'; }
@@ -1324,7 +1326,7 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
         if (!documentXml) return null;
         const numInfo = numberingXml && stylesXml ? resolveNumbering(numberingXml, stylesXml) : null;
         if (!numInfo) return null;
-        const { numId, styleNames } = numInfo;
+        const { numIds, styleNames } = numInfo;
         const body = parseXml(documentXml).getElementsByTagNameNS(W_NS, 'body')[0];
         if (!body) return null;
         let counter = 0; const rawParagraphs = [];
@@ -1333,7 +1335,7 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
           const ln = child.localName;
           if (ln === 'p') {
             const text = extractParagraphText(child); if (!text.trim()) continue;
-            const numbered = _isNumberedPara(child, numId, styleNames);
+            const numbered = _isNumberedPara(child, numIds, styleNames);
             const number = numbered ? '[' + String(++counter).padStart(4, '0') + ']' : null;
             rawParagraphs.push({ number, text, style: _getStyle(child), isCentered: _isCentered(child), isBold: _isBoldPara(child) });
           } else if (ln === 'tbl') {

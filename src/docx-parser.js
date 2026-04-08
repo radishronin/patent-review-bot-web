@@ -56,64 +56,63 @@ function wVal(el) {
 // ─── Exported helper: resolveNumbering ────────────────────────────────────
 
 /**
- * Parse numbering.xml and styles.xml to discover which concrete numId uses
- * bracket-style paragraph numbering ([%1]) and which style names inherit it.
+ * Parse numbering.xml and styles.xml to discover which concrete numIds use
+ * bracket-style paragraph numbering ([%1]) and which style names inherit them.
+ *
+ * Collects ALL matching abstractNum and num entries so that AS_FILED documents
+ * with many 1-to-1 abstractNum→num mappings are handled correctly.
  *
  * @param {string} numberingXml
  * @param {string} stylesXml
- * @returns {{ numId: string, styleNames: Set<string> } | null}
+ * @returns {{ numIds: Set<string>, styleNames: Set<string> } | null}
  */
 export function resolveNumbering(numberingXml, stylesXml) {
   const numDoc    = parseXml(numberingXml);
   const stylesDoc = parseXml(stylesXml);
 
-  // Step 1: find the abstractNumId whose level-0 lvlText contains [%1]
-  let targetAbstractNumId = null;
-
-  for (const abstractNum of numDoc.getElementsByTagNameNS(W_NS, 'abstractNum')) {
-    for (const lvl of abstractNum.getElementsByTagNameNS(W_NS, 'lvl')) {
+  // Step 1: collect ALL abstractNumIds whose ilvl=0 lvlText contains [%1]
+  const abstractIds = new Set();
+  for (const an of numDoc.getElementsByTagNameNS(W_NS, 'abstractNum')) {
+    for (const lvl of an.getElementsByTagNameNS(W_NS, 'lvl')) {
       const ilvl = lvl.getAttribute('w:ilvl') ?? lvl.getAttributeNS(W_NS, 'ilvl');
       if (ilvl !== '0') continue;
-      const lvlText = firstChild(lvl, 'lvlText');
-      const val     = wVal(lvlText);
+      const val = wVal(firstChild(lvl, 'lvlText'));
       if (val && val.includes('[%1]')) {
-        targetAbstractNumId =
-          abstractNum.getAttribute('w:abstractNumId') ??
-          abstractNum.getAttributeNS(W_NS, 'abstractNumId');
+        const aid =
+          an.getAttribute('w:abstractNumId') ??
+          an.getAttributeNS(W_NS, 'abstractNumId');
+        if (aid !== null) abstractIds.add(aid);
         break;
       }
     }
-    if (targetAbstractNumId !== null) break;
   }
 
-  if (targetAbstractNumId === null) return null;
+  if (abstractIds.size === 0) return null;
 
-  // Step 2: find the concrete numId that references this abstractNumId
-  let targetNumId = null;
-
+  // Step 2: collect ALL numIds that map to any of those abstractNumIds
+  const numIds = new Set();
   for (const num of numDoc.getElementsByTagNameNS(W_NS, 'num')) {
-    const abstractNumIdEl = firstChild(num, 'abstractNumId');
-    if (wVal(abstractNumIdEl) === targetAbstractNumId) {
-      targetNumId =
-        num.getAttribute('w:numId') ?? num.getAttributeNS(W_NS, 'numId');
-      break;
+    const mapped = wVal(firstChild(num, 'abstractNumId'));
+    if (mapped !== null && abstractIds.has(mapped)) {
+      const nid =
+        num.getAttribute('w:numId') ??
+        num.getAttributeNS(W_NS, 'numId');
+      if (nid !== null) numIds.add(nid);
     }
   }
 
-  if (targetNumId === null) return null;
+  if (numIds.size === 0) return null;
 
-  // Step 3: find styles that inherit this numId via their pPr/numPr
+  // Step 3: collect style names whose pPr/numPr/numId matches any of our numIds
   const styleNames = new Set();
-
   for (const style of stylesDoc.getElementsByTagNameNS(W_NS, 'style')) {
     const pPr   = firstChild(style, 'pPr');
     const numPr = pPr ? firstChild(pPr, 'numPr') : null;
     if (!numPr) continue;
-    const numIdEl = firstChild(numPr, 'numId');
-    if (wVal(numIdEl) !== targetNumId) continue;
+    const sNumId = wVal(firstChild(numPr, 'numId'));
+    if (sNumId === null || !numIds.has(sNumId)) continue;
 
-    const nameEl  = firstChild(style, 'name');
-    const nameVal = wVal(nameEl);
+    const nameVal = wVal(firstChild(style, 'name'));
     if (nameVal) styleNames.add(nameVal);
 
     const styleId =
@@ -122,7 +121,7 @@ export function resolveNumbering(numberingXml, stylesXml) {
     if (styleId) styleNames.add(styleId);
   }
 
-  return { numId: targetNumId, styleNames };
+  return { numIds, styleNames };
 }
 
 // ─── Exported helper: extractParagraphText ────────────────────────────────
@@ -426,23 +425,20 @@ function _isSectionHeadingPara(para) {
 
 // ─── Internal: paragraph analysis helpers ─────────────────────────────────
 
-function _isNumberedPara(pEl, numId, styleNames) {
+function _isNumberedPara(pEl, numIds, styleNames) {
   const pPr = firstChild(pEl, 'pPr');
   if (!pPr) return false;
 
-  const pStyle    = firstChild(pPr, 'pStyle');
-  const styleName = wVal(pStyle);
-
+  const styleName = wVal(firstChild(pPr, 'pStyle'));
   if (styleName && styleNames.has(styleName)) {
     const numPr   = firstChild(pPr, 'numPr');
     const numIdEl = numPr ? firstChild(numPr, 'numId') : null;
-    if (numIdEl && wVal(numIdEl) === '0') return false;
-    return true;
+    return !(numIdEl && wVal(numIdEl) === '0');
   }
 
   const numPr   = firstChild(pPr, 'numPr');
   const numIdEl = numPr ? firstChild(numPr, 'numId') : null;
-  return wVal(numIdEl) === numId;
+  return numIdEl !== null && numIds.has(wVal(numIdEl));
 }
 
 function _getParagraphStyle(pEl) {
@@ -540,7 +536,7 @@ export async function parsePatentDocx(arrayBuffer) {
     numberingXml && stylesXml ? resolveNumbering(numberingXml, stylesXml) : null;
   if (!numberingInfo) return null;
 
-  const { numId, styleNames } = numberingInfo;
+  const { numIds, styleNames } = numberingInfo;
 
   const docDom = parseXml(documentXml);
   const body   = docDom.getElementsByTagNameNS(W_NS, 'body')[0];
@@ -557,7 +553,7 @@ export async function parsePatentDocx(arrayBuffer) {
       const text = extractParagraphText(child);
       if (!text.trim()) continue;
 
-      const numbered = _isNumberedPara(child, numId, styleNames);
+      const numbered = _isNumberedPara(child, numIds, styleNames);
       let   number   = null;
       if (numbered) {
         counter++;

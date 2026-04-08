@@ -21,6 +21,7 @@ import {
   classifySections,
   parseClaims,
   parseFrontMatter,
+  parsePatentDocx,
 } from './docx-parser.js';
 
 // ─── XML Fixtures ─────────────────────────────────────────────────────────
@@ -117,10 +118,11 @@ function parseEl(xmlStr) {
 
 describe('resolveNumbering', () => {
 
-  test('finds numId and styleNames for standard patent numbering scheme', () => {
+  test('finds numIds and styleNames for standard patent numbering scheme', () => {
     const result = resolveNumbering(makeNumberingXml(), makeStylesXml());
     assert.ok(result !== null, 'Should return a result object, not null');
-    assert.equal(result.numId, '2');
+    assert.ok(result.numIds instanceof Set, 'numIds should be a Set');
+    assert.ok(result.numIds.has('2'), 'numIds should contain "2"');
     assert.ok(result.styleNames.has('Numbering'), 'Should include the "Numbering" style');
     assert.ok(result.styleNames.has('Numbering'), 'Should include styleId "Numbering"');
   });
@@ -152,7 +154,7 @@ describe('resolveNumbering', () => {
     // abstractNumId=5, numId=3
     const result = resolveNumbering(makeNumberingXml('5', '3'), makeStylesXml('3'));
     assert.ok(result !== null);
-    assert.equal(result.numId, '3');
+    assert.ok(result.numIds.has('3'));
     assert.ok(result.styleNames.has('Numbering'));
   });
 
@@ -160,8 +162,163 @@ describe('resolveNumbering', () => {
     // styles.xml uses numId=9 but numbering uses numId=2
     const result = resolveNumbering(makeNumberingXml(), makeStylesXml('9'));
     assert.ok(result !== null);
-    assert.equal(result.numId, '2');
+    assert.ok(result.numIds.has('2'));
     assert.equal(result.styleNames.size, 0);
+  });
+
+  test('collects all numIds from multi-abstractNum AS_FILED structure', () => {
+    // Three abstractNum blocks all using [%1], each with its own numId (1:1 mapping)
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<w:numbering xmlns:w="${W}">
+  <w:abstractNum w:abstractNumId="10">
+    <w:lvl w:ilvl="0"><w:lvlText w:val="[%1]"/></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="20">
+    <w:lvl w:ilvl="0"><w:lvlText w:val="[%1]"/></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="30">
+    <w:lvl w:ilvl="0"><w:lvlText w:val="[%1]"/></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="10"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="20"/></w:num>
+  <w:num w:numId="3"><w:abstractNumId w:val="30"/></w:num>
+</w:numbering>`;
+    const result = resolveNumbering(xml, makeStylesXml('1'));
+    assert.ok(result !== null);
+    assert.ok(result.numIds.has('1'), 'numIds should contain "1"');
+    assert.ok(result.numIds.has('2'), 'numIds should contain "2"');
+    assert.ok(result.numIds.has('3'), 'numIds should contain "3"');
+    assert.equal(result.numIds.size, 3);
+  });
+
+});
+
+// ─── Tests: parsePatentDocx (multi-abstractNum / AS_FILED) ───────────────
+
+describe('parsePatentDocx — multi-abstractNum AS_FILED fixture', () => {
+
+  /**
+   * Build a minimal .docx ArrayBuffer in memory using JSZip.
+   * Three paragraphs each referencing a different numId (1, 2, 3),
+   * backed by three distinct abstractNum blocks all using [%1].
+   */
+  async function buildMultiAbstractNumDocx() {
+    // Need JSZip available in Node — the module imports it dynamically
+    const mod    = await import('jszip');
+    const JSZip  = mod.default ?? mod;
+
+    const numberingXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="${W}">
+  <w:abstractNum w:abstractNumId="1">
+    <w:multiLevelType w:val="multilevel"/>
+    <w:lvl w:ilvl="0">
+      <w:start w:val="1"/>
+      <w:numFmt w:val="decimal"/>
+      <w:lvlText w:val="[%1]"/>
+    </w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="2">
+    <w:multiLevelType w:val="multilevel"/>
+    <w:lvl w:ilvl="0">
+      <w:start w:val="1"/>
+      <w:numFmt w:val="decimal"/>
+      <w:lvlText w:val="[%1]"/>
+    </w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="3">
+    <w:multiLevelType w:val="multilevel"/>
+    <w:lvl w:ilvl="0">
+      <w:start w:val="1"/>
+      <w:numFmt w:val="decimal"/>
+      <w:lvlText w:val="[%1]"/>
+    </w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="2"/></w:num>
+  <w:num w:numId="3"><w:abstractNumId w:val="3"/></w:num>
+</w:numbering>`;
+
+    const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="${W}">
+  <w:style w:type="paragraph" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+  </w:style>
+</w:styles>`;
+
+    // Three numbered paragraphs, each using a different numId
+    const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${W}">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Normal"/>
+        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>
+      </w:pPr>
+      <w:r><w:t>First numbered paragraph</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Normal"/>
+        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>
+      </w:pPr>
+      <w:r><w:t>Second numbered paragraph</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="Normal"/>
+        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr>
+      </w:pPr>
+      <w:r><w:t>Third numbered paragraph</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Normal"/></w:pPr>
+      <w:r><w:t>CLAIMS</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Normal"/></w:pPr>
+      <w:r><w:t>What is claimed is:</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Normal"/></w:pPr>
+      <w:r><w:t>1. A method comprising the numbered paragraphs.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>`;
+
+    const zip = new JSZip();
+    zip.file('word/document.xml', documentXml);
+    zip.file('word/numbering.xml', numberingXml);
+    zip.file('word/styles.xml', stylesXml);
+    zip.file('[Content_Types].xml',
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+
+    return zip.generateAsync({ type: 'arraybuffer' });
+  }
+
+  test('does not return null for a 3-abstractNum AS_FILED document', async () => {
+    const buf    = await buildMultiAbstractNumDocx();
+    const result = await parsePatentDocx(buf);
+    assert.ok(result !== null, 'parsePatentDocx should not return null');
+  });
+
+  test('detects all 3 numbered paragraphs across distinct numIds', async () => {
+    const buf    = await buildMultiAbstractNumDocx();
+    const result = await parsePatentDocx(buf);
+    assert.ok(result !== null);
+    assert.equal(result.metadata.totalNumberedParagraphs, 3,
+      'Should count all 3 paragraphs, not just those matching one numId');
+  });
+
+  test('fullTextWithNumbers contains [0001], [0002], [0003] in order', async () => {
+    const buf    = await buildMultiAbstractNumDocx();
+    const result = await parsePatentDocx(buf);
+    assert.ok(result !== null);
+    const txt = result.fullTextWithNumbers;
+    assert.ok(txt.includes('[0001]'), 'Should contain [0001]');
+    assert.ok(txt.includes('[0002]'), 'Should contain [0002]');
+    assert.ok(txt.includes('[0003]'), 'Should contain [0003]');
+    assert.ok(txt.indexOf('[0001]') < txt.indexOf('[0002]'), '[0001] before [0002]');
+    assert.ok(txt.indexOf('[0002]') < txt.indexOf('[0003]'), '[0002] before [0003]');
   });
 
 });
