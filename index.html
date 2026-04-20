@@ -456,6 +456,56 @@
       word-break: break-word;
     }
 
+    /* ── Suggestions button ───────────────────────── */
+    .suggestions-btn {
+      display: inline-block;
+      margin-top: 0.6rem;
+      margin-left: 0.4rem;
+      padding: 0.3rem 0.7rem;
+      font-size: 0.72rem;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--warning-light);
+      background: transparent;
+      border: 1px solid var(--warning);
+      border-radius: 2px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, color 0.2s ease;
+    }
+    .suggestions-btn:hover {
+      border-color: var(--warning-light);
+      color: var(--text-primary);
+    }
+    .suggestions-btn.loading {
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    /* ── Suggestions panel ────────────────────────── */
+    .suggestions-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--warning-light);
+      border-radius: 3px;
+      padding: 1rem 1.25rem;
+      margin-top: 0.35rem;
+      margin-bottom: 0.4rem;
+      max-height: 400px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .suggestions-output {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     /* ── Paragraph ref tooltip ─────────────────────── */
     .para-tooltip {
       position: absolute;
@@ -958,6 +1008,29 @@ Provide a detailed analysis of this specific issue. Be concrete and actionable:
 3. Provide specific recommendations \u2014 suggest revised claim language, additional specification support, or arguments to overcome the issue
 
 Reference paragraph numbers [XXXX] when citing specific content. Be thorough but stay focused on this single \u00a7${sectionKey} issue.`;
+    }
+
+    /**
+     * Build a suggestions prompt for a specific §§ risk.
+     */
+    function buildSuggestionsPrompt(sectionKey, risk, paragraphText, claimsText) {
+      const sectionNames = {
+        '101': '35 U.S.C. \u00a7101 \u2014 Subject Matter Eligibility',
+        '102': '35 U.S.C. \u00a7102 \u2014 Novelty',
+        '103': '35 U.S.C. \u00a7103 \u2014 Obviousness',
+        '112': '35 U.S.C. \u00a7112 \u2014 Written Description & Enablement',
+      };
+
+      return `You previously identified a ${risk.level} risk under ${sectionNames[sectionKey]}:
+
+"${risk.headline}"
+
+Relevant paragraphs from the specification:
+${paragraphText || '(No specific paragraphs identified)'}
+
+${claimsText ? 'Claims:\n' + claimsText : ''}
+
+Provide 3-6 specific revision suggestions to address this risk. Each suggestion should identify what to change and where, without drafting the actual text. Be concise.`;
     }
 
     // =============================================================
@@ -1611,8 +1684,8 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
         overviewHeaderEl.appendChild(summaryEl);
       }
 
-      // Remove any existing drill-down panels
-      overviewDashboard.querySelectorAll('.drill-down-panel').forEach(el => el.remove());
+      // Remove any existing drill-down and suggestions panels
+      overviewDashboard.querySelectorAll('.drill-down-panel, .suggestions-panel').forEach(el => el.remove());
 
       // Risk grid
       riskGridEl.innerHTML = '';
@@ -1729,19 +1802,25 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
           card.appendChild(refs);
         }
 
-        // Drill-down button for MED and HI risk cards
+        // Drill-down and Suggestions buttons for MED and HI risk cards
         if (level === 'MED' || level === 'HI') {
           const btn = document.createElement('button');
           btn.className = 'drill-down-btn';
-          btn.textContent = 'Details';
+          btn.textContent = 'Details \u25b8';
           btn.addEventListener('click', () => handleDrillDown(key));
           card.appendChild(btn);
+
+          const sugBtn = document.createElement('button');
+          sugBtn.className = 'suggestions-btn';
+          sugBtn.textContent = 'Suggestions \u25b8';
+          sugBtn.addEventListener('click', () => handleSuggestions(key));
+          card.appendChild(sugBtn);
         }
 
         riskGridEl.appendChild(card);
       });
 
-      // Create drill-down panels for all four sections (in order), insert before tokenUsage
+      // Create drill-down and suggestions panels for all four sections, insert before tokenUsage
       const tokenUsageDiv = overviewDashboard.querySelector('.token-usage');
       Object.keys(RISK_LABELS).forEach(key => {
         const panel = document.createElement('div');
@@ -1752,6 +1831,15 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
         pre.className = 'drill-down-output';
         panel.appendChild(pre);
         overviewDashboard.insertBefore(panel, tokenUsageDiv);
+
+        const sugPanel = document.createElement('div');
+        sugPanel.className = 'suggestions-panel';
+        sugPanel.id = 'sugPanel-' + key;
+        sugPanel.style.display = 'none';
+        const sugPre = document.createElement('pre');
+        sugPre.className = 'suggestions-output';
+        sugPanel.appendChild(sugPre);
+        overviewDashboard.insertBefore(sugPanel, tokenUsageDiv);
       });
 
       overviewDashboard.style.display = 'block';
@@ -1815,7 +1903,7 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
       if (panel.dataset.fetched === 'true') {
         const visible = panel.style.display !== 'none';
         panel.style.display = visible ? 'none' : 'block';
-        if (btn) btn.textContent = visible ? 'Details' : 'Hide';
+        if (btn) btn.textContent = visible ? 'Details \u25b8' : 'Hide Details';
         return;
       }
 
@@ -1852,11 +1940,69 @@ Reference paragraph numbers [XXXX] when citing specific content. Be thorough but
 
         addUsage(usage);
         panel.dataset.fetched = 'true';
-        if (btn) { btn.textContent = 'Hide'; btn.classList.remove('loading'); }
+        if (btn) { btn.textContent = 'Hide Details'; btn.classList.remove('loading'); }
       } catch (err) {
         pre.textContent = 'Analysis failed: ' + err.message;
         panel.dataset.fetched = '';
-        if (btn) { btn.textContent = 'Retry'; btn.classList.remove('loading'); }
+        if (btn) { btn.textContent = 'Details \u25b8'; btn.classList.remove('loading'); }
+      }
+    }
+
+    /**
+     * Handle a suggestions button click for the given section key.
+     * First click: streams revision suggestions into the panel.
+     * Subsequent clicks: toggle panel visibility.
+     */
+    async function handleSuggestions(sectionKey) {
+      const panel  = document.getElementById('sugPanel-' + sectionKey);
+      const card   = overviewDashboard.querySelector(`[data-section="${sectionKey}"]`);
+      const btn    = card ? card.querySelector('.suggestions-btn') : null;
+      const pre    = panel.querySelector('.suggestions-output');
+
+      // Toggle if already fetched
+      if (panel.dataset.fetched === 'true') {
+        const visible = panel.style.display !== 'none';
+        panel.style.display = visible ? 'none' : 'block';
+        if (btn) btn.textContent = visible ? 'Suggestions \u25b8' : 'Hide Suggestions';
+        return;
+      }
+
+      const risk = currentOverview && currentOverview.risks
+        ? currentOverview.risks[sectionKey]
+        : null;
+      if (!risk) return;
+
+      const paragraphText = extractParagraphsByNumber(risk.paragraphs || []);
+
+      let claimsText = '';
+      if (currentParsedDoc) {
+        const claimsSec = currentParsedDoc.sections.find(s => s.type === 'claims');
+        if (claimsSec && claimsSec.claims) {
+          claimsText = claimsSec.claims.map(c => c.number + '. ' + c.text).join('\n');
+        }
+      }
+
+      const prompt = buildSuggestionsPrompt(sectionKey, risk, paragraphText, claimsText);
+
+      panel.style.display = 'block';
+      pre.textContent = '';
+      if (btn) { btn.textContent = 'Analyzing\u2026'; btn.classList.add('loading'); }
+
+      const SUGGESTIONS_SYSTEM = 'You are a patent attorney assistant providing revision suggestions. Be sparse and specific. Each suggestion should be 1-2 sentences of actionable guidance \u2014 what to add, clarify, narrow, or restructure. Reference paragraph numbers [XXXX] and claim numbers where relevant. Do NOT draft replacement language, claim amendments, or boilerplate text. Write as if you are leaving margin notes for a drafter.';
+
+      try {
+        const usage = await LLMProvider.streamMessage(prompt, (chunk) => {
+          pre.textContent += chunk;
+          panel.scrollTop = panel.scrollHeight;
+        }, { maxTokens: 1024, system: SUGGESTIONS_SYSTEM });
+
+        addUsage(usage);
+        panel.dataset.fetched = 'true';
+        if (btn) { btn.textContent = 'Hide Suggestions'; btn.classList.remove('loading'); }
+      } catch (err) {
+        pre.textContent = 'Suggestions failed: ' + err.message;
+        panel.dataset.fetched = '';
+        if (btn) { btn.textContent = 'Suggestions \u25b8'; btn.classList.remove('loading'); }
       }
     }
 
