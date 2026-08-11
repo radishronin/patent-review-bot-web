@@ -5,12 +5,14 @@
     { label: 'Home',        seg: '',        path: root + '/' },
     { label: 'Review',      seg: 'review',  path: root + '/review/' },
     { label: 'OA Builder',  seg: 'oar',     path: root + '/oar/' },
-    { label: 'First-Print', seg: 'print',   path: root + '/print/' }
+    { label: 'First-Print', seg: 'print',   path: root + '/print/' },
+    { label: 'Text Extract', seg: 'text-from-docx', path: root + '/text-from-docx/' }
   ];
   var current = '';
   if (/\/review\//.test(location.pathname)) current = 'review';
   else if (/\/oar\//.test(location.pathname)) current = 'oar';
   else if (/\/print\//.test(location.pathname)) current = 'print';
+  else if (/\/text-from-docx\//.test(location.pathname)) current = 'text-from-docx';
 
   var css =
     '.suite-nav{position:sticky;top:0;width:100%;display:flex;gap:0.25rem;' +

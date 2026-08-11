@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patent Text Extractor</title>
+
+  <!-- JSZip — needed by the inlined parser to unzip .docx archives -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- mammoth.js — used only as a fallback when the structured parser returns null -->
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <script src="../shared/nav.js" data-root=".."></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base:        #0e0e0e;
+      --bg-surface:     #161616;
+      --bg-raised:      #1f1f1f;
+      --border:         #2e2e2e;
+      --border-active:  #6b8cba;
+      --text-primary:   #e8e4dc;
+      --text-secondary: #8a8580;
+      --text-muted:     #4a4845;
+      --accent:         #4a6fa5;
+      --accent-light:   #6b8cba;
+      --success:        #4a7c59;
+      --success-light:  #6aad80;
+      --warning-light:  #c8a050;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem 2rem 4rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      margin-top: 1.5rem;
+    }
+
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: normal;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+
+    header p {
+      margin-top: 0.6rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      font-style: italic;
+      letter-spacing: 0.02em;
+    }
+
+    .divider {
+      width: 48px;
+      height: 1px;
+      background: var(--border);
+      margin: 1.1rem auto;
+    }
+
+    /* ── Drop zone ─────────────────────────────────── */
+    .drop-zone {
+      width: 100%;
+      max-width: 720px;
+      background: var(--bg-surface);
+      border: 1.5px dashed var(--border);
+      border-radius: 4px;
+      padding: 3rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      transition: border-color 0.2s ease, background-color 0.2s ease;
+      user-select: none;
+    }
+
+    .drop-zone.drag-over {
+      border-color: var(--border-active);
+      background-color: var(--bg-raised);
+    }
+
+    .drop-zone.accepted {
+      border-style: solid;
+      border-color: var(--success);
+      background-color: var(--bg-raised);
+    }
+
+    .drop-icon {
+      width: 44px;
+      height: 44px;
+      opacity: 0.35;
+      transition: opacity 0.2s ease;
+    }
+
+    .drop-zone.drag-over .drop-icon,
+    .drop-zone.accepted .drop-icon { opacity: 0.6; }
+
+    .drop-zone.accepted .drop-icon path { stroke: var(--success-light); }
+
+    .drop-label {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.03em;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .drop-label span {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+      font-style: italic;
+    }
+
+    .drop-zone.drag-over .drop-label { color: var(--text-primary); }
+
+    /* File picker button — since this is local & double-clickable,
+       some users may prefer clicking over dragging */
+    .file-picker {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--accent-light);
+      text-decoration: underline;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      letter-spacing: 0.03em;
+    }
+
+    .file-picker:hover { color: var(--text-primary); }
+
+    /* ── Status line ───────────────────────────────── */
+    .status-msg {
+      display: none;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1rem;
+      font-size: 0.82rem;
+      font-style: italic;
+      text-align: center;
+    }
+
+    .status-msg.visible { display: block; }
+    .status-msg.error   { color: #b06060; }
+    .status-msg.working { color: var(--text-muted); }
+    .status-msg.success { color: var(--success-light); }
+
+    /* ── Meta bar ──────────────────────────────────── */
+    .meta-bar {
+      display: none;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1.5rem;
+      padding: 0.9rem 1.25rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+    }
+
+    .meta-bar.visible { display: block; }
+
+    .meta-bar .meta-title {
+      color: var(--text-primary);
+      font-style: italic;
+      margin-bottom: 0.35rem;
+      font-size: 0.88rem;
+    }
+
+    .meta-bar .meta-line {
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .meta-bar .meta-line .sep { color: var(--border); margin: 0 0.5rem; }
+
+    .meta-bar .meta-warning {
+      display: block;
+      margin-top: 0.4rem;
+      color: var(--warning-light);
+      font-style: italic;
+      font-size: 0.76rem;
+    }
+
+    /* ── Action row ────────────────────────────────── */
+    .action-row {
+      display: none;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1rem;
+      gap: 0.75rem;
+      justify-content: flex-end;
+    }
+
+    .action-row.visible { display: flex; }
+
+    .btn {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      font-size: 0.82rem;
+      letter-spacing: 0.05em;
+      padding: 0.55rem 1.1rem;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+
+    .btn:hover {
+      border-color: var(--border-active);
+      background-color: var(--bg-surface);
+    }
+
+    .btn-primary {
+      border-color: var(--accent);
+      color: var(--accent-light);
+    }
+
+    .btn-primary:hover {
+      border-color: var(--accent-light);
+      color: var(--text-primary);
+    }
+
+    /* ── Output textarea ───────────────────────────── */
+    .output-section {
+      display: none;
+      width: 100%;
+      max-width: 720px;
+      margin-top: 1rem;
+    }
+
+    .output-section.visible { display: block; }
+
+    .output-section textarea {
+      width: 100%;
+      height: 520px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.78rem;
+      line-height: 1.65;
+      padding: 1.25rem;
+      resize: vertical;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .output-section textarea:focus {
+      outline: none;
+      border-color: var(--border-active);
+    }
+
+    .output-section textarea::-webkit-scrollbar { width: 6px; }
+    .output-section textarea::-webkit-scrollbar-track { background: transparent; }
+    .output-section textarea::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    footer {
+      margin-top: 3rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Patent Text Extractor</h1>
+    <div class="divider"></div>
+    <p>Extract a plain-text blob with paragraph numbers preserved</p>
+  </header>
+
+  <!-- Drop zone -->
+  <div class="drop-zone" id="dropZone" role="region" aria-label="File drop zone">
+    <svg class="drop-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 6h16l10 10v26H12V6z" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M28 6v10h10" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M18 22h12M18 28h12M18 34h8" stroke="var(--text-secondary)" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <p class="drop-label">
+      Drop a .docx patent document here
+      <span>Paragraph numbers [XXXX] will be preserved</span>
+    </p>
+    <button type="button" class="file-picker" id="filePickerBtn">or click to choose a file</button>
+    <input type="file" id="fileInput" accept=".docx" style="display:none" />
+  </div>
+
+  <!-- Status line -->
+  <div class="status-msg" id="statusMsg"></div>
+
+  <!-- Meta bar (title, paragraph count, etc.) -->
+  <div class="meta-bar" id="metaBar"></div>
+
+  <!-- Action buttons -->
+  <div class="action-row" id="actionRow">
+    <button type="button" class="btn" id="downloadBtn">Download .txt</button>
+    <button type="button" class="btn btn-primary" id="copyBtn">Copy to clipboard</button>
+  </div>
+
+  <!-- Output textarea -->
+  <div class="output-section" id="outputSection">
+    <textarea id="outputText" readonly spellcheck="false"></textarea>
+  </div>
+
+  <footer>Local-only &mdash; nothing is uploaded anywhere</footer>
+
+  <script>
+    // =============================================================
+    // PATENT DOCX PARSER
+    // Inline copy of src/docx-parser.js — kept in sync with the
+    // main patent-review-bot index.html.
+    // =============================================================
+    (function () {
+      const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+      const M_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+
+      function parseXml(str) {
+        return new DOMParser().parseFromString(str, 'application/xml');
+      }
+      function firstChild(el, ln) {
+        for (const n of el.childNodes) if (n.nodeType === 1 && n.localName === ln) return n;
+        return null;
+      }
+      function wVal(el) {
+        if (!el) return null;
+        return el.getAttribute('w:val') ?? el.getAttributeNS(W_NS, 'val') ?? null;
+      }
+
+      function resolveNumbering(numberingXml, stylesXml) {
+        const numDoc = parseXml(numberingXml), stylesDoc = parseXml(stylesXml);
+        const abstractIds = new Set();
+        for (const an of numDoc.getElementsByTagNameNS(W_NS, 'abstractNum')) {
+          for (const lvl of an.getElementsByTagNameNS(W_NS, 'lvl')) {
+            const ilvl = lvl.getAttribute('w:ilvl') ?? lvl.getAttributeNS(W_NS, 'ilvl');
+            if (ilvl !== '0') continue;
+            const val = wVal(firstChild(lvl, 'lvlText'));
+            if (val && val.includes('[%1]')) {
+              abstractIds.add(an.getAttribute('w:abstractNumId') ?? an.getAttributeNS(W_NS, 'abstractNumId'));
+              break;
+            }
+          }
+        }
+        if (abstractIds.size === 0) return null;
+
+        const numIds = new Set();
+        for (const num of numDoc.getElementsByTagNameNS(W_NS, 'num')) {
+          if (abstractIds.has(wVal(firstChild(num, 'abstractNumId')))) {
+            numIds.add(num.getAttribute('w:numId') ?? num.getAttributeNS(W_NS, 'numId'));
+          }
+        }
+        if (numIds.size === 0) return null;
+
+        const styleNames = new Set();
+        for (const style of stylesDoc.getElementsByTagNameNS(W_NS, 'style')) {
+          const pPr = firstChild(style, 'pPr'), numPr = pPr ? firstChild(pPr, 'numPr') : null;
+          if (!numPr) continue;
+          if (!numIds.has(wVal(firstChild(numPr, 'numId')))) continue;
+          const nv = wVal(firstChild(style, 'name')); if (nv) styleNames.add(nv);
+          const sid = style.getAttribute('w:styleId') ?? style.getAttributeNS(W_NS, 'styleId');
+          if (sid) styleNames.add(sid);
+        }
+        return { numIds, styleNames };  // ← returns a Set instead of a single string
+      }
+
+      function extractParagraphText(pEl) {
+        const parts = []; _collectText(pEl, parts, true); return parts.join('');
+      }
+      function _collectText(el, parts, skipPPr) {
+        for (const n of el.childNodes) {
+          if (n.nodeType !== 1) continue;
+          const ln = n.localName;
+          if (skipPPr && (ln === 'pPr' || ln === 'rPr')) continue;
+          if (ln === 'rPr') continue;
+          if (ln === 't') parts.push(n.textContent);
+          else if (ln === 'tab') parts.push('\t');
+          else _collectText(n, parts, false);
+        }
+      }
+
+      function parseClaims(claimParas) {
+        const claims = []; let cur = null;
+        for (const para of claimParas) {
+          const t = para.text.trim(); if (!t) continue;
+          if (/^(what\s+is\s+claimed\s+is\s*:|claims?\s*$|i\s+claim\s*:|we\s+claim\s*:)/i.test(t)) continue;
+          const m = t.match(/^(\d+)\.\s*/);
+          if (m) {
+            if (cur) claims.push(cur);
+            const body = t.slice(m[0].length);
+            const dm = body.match(/\bclaims?\s+(\d+)/i);
+            cur = { number: parseInt(m[1], 10), text: body, dependsOn: dm ? parseInt(dm[1], 10) : null };
+          } else if (cur) { cur.text += '\n' + t; }
+        }
+        if (cur) claims.push(cur); return claims;
+      }
+
+      function _hasBold(rPr) {
+        const b = firstChild(rPr, 'b'); if (!b) return false;
+        const v = wVal(b); return v === null || v === '' || v === 'true' || v === '1';
+      }
+      function _isBoldPara(pEl) {
+        const pPr = firstChild(pEl, 'pPr');
+        if (pPr) { const rPr = firstChild(pPr, 'rPr'); if (rPr && _hasBold(rPr)) return true; }
+        for (const n of pEl.childNodes) {
+          if (n.nodeType === 1 && n.localName === 'r') {
+            const rPr = firstChild(n, 'rPr'); if (rPr && _hasBold(rPr)) return true;
+          }
+        }
+        return false;
+      }
+
+      function parseFrontMatter(paragraphs) {
+        let title = null; const inventors = []; let docketNumber = null, clientRef = null;
+        let forIdx = -1;
+        for (let i = 0; i < paragraphs.length; i++) {
+          if (/^for$/i.test(paragraphs[i].text.trim()) && paragraphs[i].isCentered) { forIdx = i; break; }
+        }
+        if (forIdx >= 0) {
+          for (let i = forIdx + 1; i < paragraphs.length; i++) {
+            const p = paragraphs[i]; if (!p.text.trim()) continue;
+            if (p.isCentered && p.isBold) { title = p.text.trim(); break; }
+          }
+        }
+        let invIdx = -1;
+        for (let i = 0; i < paragraphs.length; i++) {
+          if (/^inventors?:\s*$/i.test(paragraphs[i].text.trim())) { invIdx = i; break; }
+        }
+        if (invIdx >= 0) {
+          for (let i = invIdx + 1; i < paragraphs.length; i++) {
+            const p = paragraphs[i]; const t = p.text.trim(); if (!t) continue;
+            if (/attorney\s+docket|client\s+ref|docket\s+no|phone|fax|\d{3}[-.\s]\d{3}/i.test(t)) break;
+            if (p.isBold && /:\s*$/.test(t)) break;
+            if (p.isCentered && !p.isBold) inventors.push(t);
+          }
+        }
+        for (const p of paragraphs) {
+          const t = p.text.trim();
+          if (!docketNumber) { const m = t.match(/attorney\s+docket\s+(?:no\.?|number)?\s*:?\s*(.+)/i); if (m) docketNumber = m[1].trim(); }
+          if (!clientRef)    { const m = t.match(/client\s+ref(?:erence)?\s+(?:no\.?|number)?\s*:?\s*(.+)/i); if (m) clientRef = m[1].trim(); }
+        }
+        return { title, inventors, docketNumber, clientRef };
+      }
+
+      function _isSectionHeading(para) {
+        const s = (para.style || '').toLowerCase();
+        if (s === 'section' || s === 'sectionheading' || s.includes('section')) return true;
+        if (para.isCentered && para.number === null)
+          return /^(background|field|summary|brief description|detailed description|description of|drawings|technical field|cross.reference)/i.test(para.text.trim());
+        return false;
+      }
+
+      function classifySections(paragraphs) {
+        const sections = []; let cur = null, mode = 'start', claimParas = [];
+        const pushSection = () => {
+          if (!cur) return;
+          if (cur.type === 'front-matter') { const fm = parseFrontMatter(cur.paragraphs); Object.assign(cur, fm); }
+          sections.push(cur); cur = null;
+        };
+        const pushClaims = () => {
+          if (claimParas.length > 0) { sections.push({ type: 'claims', heading: null, paragraphs: undefined, claims: parseClaims(claimParas), text: null }); claimParas = []; }
+        };
+        const flush = () => { if (mode === 'claims') pushClaims(); else pushSection(); };
+        for (const para of paragraphs) {
+          const t = para.text.trim(); if (!t) continue;
+          if (/^what\s+is\s+claimed\s+is\s*:/i.test(t) || /^\s*claims\s*$/i.test(t) || /^\s*i\s+claim\s*:/i.test(t) || /^\s*we\s+claim\s*:/i.test(t)) {
+            flush(); mode = 'claims'; claimParas = [para]; continue;
+          }
+          if (/^abstract$/i.test(t) && para.isCentered) {
+            flush(); mode = 'abstract'; cur = { type: 'abstract', heading: null, paragraphs: undefined, claims: undefined, text: '' }; continue;
+          }
+          if (mode === 'claims')   { claimParas.push(para); continue; }
+          if (mode === 'abstract') { cur.text = cur.text ? cur.text + '\n' + t : t; continue; }
+          if (_isSectionHeading(para)) {
+            pushSection(); mode = 'section'; cur = { type: 'section', heading: t, paragraphs: [], claims: undefined, text: null }; continue;
+          }
+          if (!cur) { mode = 'front-matter'; cur = { type: 'front-matter', heading: null, paragraphs: [], claims: undefined, text: null }; }
+          cur.paragraphs.push(para);
+        }
+        if (mode === 'claims') pushClaims(); else pushSection();
+        return sections;
+      }
+
+      function _isNumberedPara(pEl, numIds, styleNames) {
+        const pPr = firstChild(pEl, 'pPr'); if (!pPr) return false;
+        const styleName = wVal(firstChild(pPr, 'pStyle'));
+        if (styleName && styleNames.has(styleName)) {
+          const numPr = firstChild(pPr, 'numPr'), numIdEl = numPr ? firstChild(numPr, 'numId') : null;
+          return !(numIdEl && wVal(numIdEl) === '0');
+        }
+        const numPr = firstChild(pPr, 'numPr'), numIdEl = numPr ? firstChild(numPr, 'numId') : null;
+        return numIdEl !== null && numIds.has(wVal(numIdEl));  // ← set lookup
+      }
+      function _getStyle(pEl) { const pPr = firstChild(pEl, 'pPr'); return wVal(pPr ? firstChild(pPr, 'pStyle') : null) || 'Normal'; }
+      function _isCentered(pEl) { const pPr = firstChild(pEl, 'pPr'); if (!pPr) return false; return wVal(firstChild(pPr, 'jc')) === 'center'; }
+      function _tblText(tbl) { const p = []; _collectText(tbl, p, false); return p.join('').trim(); }
+
+      function _buildFullText(sections) {
+        const lines = [];
+        for (const s of sections) {
+          if (s.type === 'front-matter') {
+            for (const p of (s.paragraphs || [])) lines.push(p.number ? p.number + ' ' + p.text : p.text);
+          } else if (s.type === 'section') {
+            lines.push(''); lines.push(s.heading || '');
+            for (const p of (s.paragraphs || [])) lines.push(p.number ? p.number + ' ' + p.text : p.text);
+          } else if (s.type === 'claims') {
+            lines.push(''); lines.push('CLAIMS'); lines.push('What is claimed is:');
+            for (const c of (s.claims || [])) lines.push(c.number + '. ' + c.text);
+          } else if (s.type === 'abstract') {
+            lines.push(''); lines.push('ABSTRACT'); if (s.text) lines.push(s.text);
+          }
+        }
+        return lines.join('\n').trim();
+      }
+
+      async function parsePatentDocx(arrayBuffer) {
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        const [documentXml, numberingXml, stylesXml] = await Promise.all([
+          zip.file('word/document.xml')?.async('string')  ?? Promise.resolve(null),
+          zip.file('word/numbering.xml')?.async('string') ?? Promise.resolve(null),
+          zip.file('word/styles.xml')?.async('string')    ?? Promise.resolve(null),
+        ]);
+        if (!documentXml) return null;
+        const numInfo = numberingXml && stylesXml ? resolveNumbering(numberingXml, stylesXml) : null;
+        if (!numInfo) return null;
+        const { numIds, styleNames } = numInfo;
+        const body = parseXml(documentXml).getElementsByTagNameNS(W_NS, 'body')[0];
+        if (!body) return null;
+        let counter = 0; const rawParagraphs = [];
+        for (const child of body.childNodes) {
+          if (child.nodeType !== 1) continue;
+          const ln = child.localName;
+          if (ln === 'p') {
+            const text = extractParagraphText(child); if (!text.trim()) continue;
+            const numbered = _isNumberedPara(child, numIds, styleNames);
+            const number = numbered ? '[' + String(++counter).padStart(4, '0') + ']' : null;
+            rawParagraphs.push({ number, text, style: _getStyle(child), isCentered: _isCentered(child), isBold: _isBoldPara(child) });
+          } else if (ln === 'tbl') {
+            const text = _tblText(child); if (text) rawParagraphs.push({ number: null, text, style: 'Table', isCentered: false, isBold: false });
+          }
+        }
+        if (counter === 0) return null;
+        const sections = classifySections(rawParagraphs);
+        const fullTextWithNumbers = _buildFullText(sections);
+        const fm = sections.find(s => s.type === 'front-matter');
+        return {
+          title: (fm && fm.title) ? fm.title : null,
+          sections,
+          metadata: {
+            totalNumberedParagraphs: counter,
+            estimatedTokenCount: Math.ceil(fullTextWithNumbers.length / 4),
+            hasClaimsSection: sections.some(s => s.type === 'claims'),
+            hasAbstract:      sections.some(s => s.type === 'abstract'),
+          },
+          fullTextWithNumbers,
+        };
+      }
+
+      window.parsePatentDocx = parsePatentDocx;
+    })();
+
+    // =============================================================
+    // UI
+    // =============================================================
+    const dropZone      = document.getElementById('dropZone');
+    const filePickerBtn = document.getElementById('filePickerBtn');
+    const fileInput     = document.getElementById('fileInput');
+    const statusMsg     = document.getElementById('statusMsg');
+    const metaBar       = document.getElementById('metaBar');
+    const actionRow     = document.getElementById('actionRow');
+    const outputSection = document.getElementById('outputSection');
+    const outputText    = document.getElementById('outputText');
+    const copyBtn       = document.getElementById('copyBtn');
+    const downloadBtn   = document.getElementById('downloadBtn');
+
+    let currentFileName = null;
+
+    function setStatus(msg, type) {
+      statusMsg.textContent = msg;
+      statusMsg.className   = 'status-msg' + (msg ? ' visible' : '');
+      if (type) statusMsg.classList.add(type);
+    }
+
+    function resetOutput() {
+      metaBar.classList.remove('visible');
+      metaBar.innerHTML = '';
+      actionRow.classList.remove('visible');
+      outputSection.classList.remove('visible');
+      outputText.value = '';
+    }
+
+    async function handleFile(file) {
+      resetOutput();
+      dropZone.classList.remove('drag-over', 'accepted');
+
+      const isDocx = file.name.toLowerCase().endsWith('.docx') ||
+                     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      if (!isDocx) {
+        setStatus('Only .docx files are supported.', 'error');
+        return;
+      }
+
+      currentFileName = file.name;
+      dropZone.classList.add('accepted');
+      setStatus('Extracting text\u2026', 'working');
+
+      let arrayBuffer;
+      try {
+        arrayBuffer = await file.arrayBuffer();
+      } catch (err) {
+        setStatus('Failed to read file: ' + err.message, 'error');
+        return;
+      }
+
+      // Try the structured parser first — this is the path that preserves [XXXX]
+      let parsed = null;
+      try {
+        parsed = await window.parsePatentDocx(arrayBuffer);
+      } catch (err) {
+        console.warn('Structured parse failed:', err);
+      }
+
+      let textBlob = '';
+      let usedFallback = false;
+      let meta = null;
+
+      if (parsed && parsed.fullTextWithNumbers) {
+        textBlob = parsed.fullTextWithNumbers;
+        meta = parsed;
+      } else {
+        // Fallback: mammoth raw text (loses [XXXX] — warn the user)
+        usedFallback = true;
+        try {
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          textBlob = (result.value || '').trim();
+        } catch (err) {
+          setStatus('Failed to extract text: ' + err.message, 'error');
+          return;
+        }
+      }
+
+      if (!textBlob) {
+        setStatus('No text could be extracted from this document.', 'error');
+        return;
+      }
+
+      // Populate output
+      outputText.value = textBlob;
+      outputSection.classList.add('visible');
+      actionRow.classList.add('visible');
+
+      // Build meta bar
+      const titleLine = document.createElement('div');
+      titleLine.className = 'meta-title';
+      titleLine.textContent = (meta && meta.title) ? meta.title : file.name;
+      metaBar.appendChild(titleLine);
+
+      const metaLine = document.createElement('div');
+      metaLine.className = 'meta-line';
+      if (meta) {
+        const parts = [
+          meta.metadata.totalNumberedParagraphs + ' numbered paragraphs',
+          meta.metadata.hasClaimsSection ? 'claims \u2713' : 'no claims',
+          meta.metadata.hasAbstract ? 'abstract \u2713' : 'no abstract',
+          '~' + meta.metadata.estimatedTokenCount.toLocaleString() + ' tokens',
+        ];
+        metaLine.innerHTML = parts.join('<span class="sep">\u00b7</span>');
+      } else {
+        const charCount = textBlob.length;
+        const tokenEst  = Math.ceil(charCount / 4);
+        metaLine.innerHTML =
+          charCount.toLocaleString() + ' characters' +
+          '<span class="sep">\u00b7</span>~' + tokenEst.toLocaleString() + ' tokens';
+      }
+      metaBar.appendChild(metaLine);
+
+      if (usedFallback) {
+        const warn = document.createElement('span');
+        warn.className = 'meta-warning';
+        warn.textContent = 'Structured parser failed — used plain-text fallback. Paragraph numbers [XXXX] are NOT preserved.';
+        metaBar.appendChild(warn);
+      }
+
+      metaBar.classList.add('visible');
+      setStatus(usedFallback ? 'Extracted (fallback mode)' : 'Extracted successfully', 'success');
+    }
+
+    // Copy button
+    copyBtn.addEventListener('click', async () => {
+      if (!outputText.value) return;
+      try {
+        await navigator.clipboard.writeText(outputText.value);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied \u2713';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      } catch (err) {
+        // Fallback for file:// where clipboard API may be restricted
+        outputText.select();
+        document.execCommand('copy');
+        outputText.setSelectionRange(0, 0);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied \u2713';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      }
+    });
+
+    // Download button
+    downloadBtn.addEventListener('click', () => {
+      if (!outputText.value) return;
+      const blob = new Blob([outputText.value], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const base = (currentFileName || 'extracted').replace(/\.docx$/i, '');
+      a.download = base + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // File picker
+    filePickerBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    // Drag & drop
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+      document.addEventListener(evt, e => e.preventDefault());
+    });
+
+    dropZone.addEventListener('dragenter', () => dropZone.classList.add('drag-over'));
+    dropZone.addEventListener('dragover',  () => dropZone.classList.add('drag-over'));
+    dropZone.addEventListener('dragleave', e => {
+      if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+      handleFile(files[0]);
+    });
+  </script>
+</body>
+</html>
