@@ -6,7 +6,8 @@
     { label: 'Review',      seg: 'review',  path: root + '/review/' },
     { label: 'OA Builder',  seg: 'oar',     path: root + '/oar/' },
     { label: 'First-Print', seg: 'print',   path: root + '/print/' },
-    { label: 'Text Extract', seg: 'text-from-docx', path: root + '/text-from-docx/' }
+    { label: 'Text Extract', seg: 'text-from-docx', path: root + '/text-from-docx/' },
+    { label: 'Paper',       seg: 'paper',   path: root + '/paper/Patent_Review_Bot.pdf', external: true }
   ];
   var current = '';
   if (/\/review\//.test(location.pathname)) current = 'review';
@@ -35,6 +36,7 @@
       var a = document.createElement('a');
       a.href = t.path;
       a.textContent = t.label;
+      if (t.external) { a.target = '_blank'; a.rel = 'noopener'; }
       if (t.seg === current) a.className = 'active';
       nav.appendChild(a);
     });
